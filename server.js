@@ -18,6 +18,7 @@ const symbols = [
   { name: "Bitcoin", symbol: "BTC-USD" }
 ];
 
+// 📊 Fetch prices
 async function getPrices() {
   const results = [];
 
@@ -32,10 +33,10 @@ async function getPrices() {
       const chart = response.data.chart.result[0];
       const closes = chart.indicators.quote[0].close;
 
-      const validCloses = closes.filter(x => x !== null).slice(-30);
+      const valid = closes.filter(x => x !== null).slice(-30);
 
-      const latest = validCloses[validCloses.length - 1];
-      const prev = validCloses[0];
+      const latest = valid[valid.length - 1];
+      const prev = valid[0];
 
       let pctChange = null;
       if (latest && prev) {
@@ -46,8 +47,7 @@ async function getPrices() {
         name: s.name,
         symbol: s.symbol,
         price: latest,
-        pctChange,
-        history: validCloses
+        pctChange
       });
 
     } catch {
@@ -55,8 +55,7 @@ async function getPrices() {
         name: s.name,
         symbol: s.symbol,
         price: null,
-        pctChange: null,
-        history: []
+        pctChange: null
       });
     }
   }
@@ -64,11 +63,13 @@ async function getPrices() {
   return results;
 }
 
+// 📈 Prices endpoint
 app.get("/api/prices", async (req, res) => {
   const prices = await getPrices();
   res.json(prices);
 });
 
+// 🤖 AI endpoint
 app.get("/api/explain", async (req, res) => {
   const prices = await getPrices();
 
@@ -91,10 +92,10 @@ Tasks:
 
 Return STRICT JSON:
 {
-  "takeaway": "...",
-  "action": "...",
+  "takeaway": "short macro takeaway",
+  "action": "trade idea",
   "confidence": number,
-  "commentary": "4-6 sentence macro explanation"
+  "commentary": "detailed 4-6 sentence macro explanation"
 }
 `;
 
