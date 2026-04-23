@@ -34,7 +34,6 @@ async function getPrices() {
       const closes = chart.indicators.quote[0].close;
 
       const latest = closes.slice().reverse().find(x => x !== null);
-
       const prev = closes.find(x => x !== null);
 
       let pctChange = null;
@@ -44,12 +43,18 @@ async function getPrices() {
 
       results.push({
         name: s.name,
+        symbol: s.symbol,
         price: latest,
         pctChange
       });
 
-    } catch (err) {
-      results.push({ name: s.name, price: null, pctChange: null });
+    } catch {
+      results.push({
+        name: s.name,
+        symbol: s.symbol,
+        price: null,
+        pctChange: null
+      });
     }
   }
 
@@ -62,7 +67,7 @@ app.get("/api/prices", async (req, res) => {
   res.json(prices);
 });
 
-// 🤖 AI endpoint (returns structured output)
+// 🤖 AI endpoint
 app.get("/api/explain", async (req, res) => {
   const prices = await getPrices();
 
@@ -71,22 +76,31 @@ app.get("/api/explain", async (req, res) => {
     .join(", ");
 
   const prompt = `
-You are a macro hedge fund strategist.
+You are a senior macro hedge fund strategist.
 
 Market:
 ${summary}
 
+Tasks:
+1. Identify dominant macro driver
+2. Explain cross-asset relationships
+3. Provide clear takeaway
+4. Suggest a trade
+5. Assign confidence (0-100)
+
 Return STRICT JSON:
 {
-  "takeaway": "...",
-  "action": "...",
-  "commentary": "..."
+  "takeaway": "short macro takeaway",
+  "action": "trade idea",
+  "confidence": number,
+  "commentary": "detailed 4-6 sentence macro explanation"
 }
 `;
 
   let result = {
     takeaway: "No signal",
     action: "No action",
+    confidence: null,
     commentary: "AI unavailable"
   };
 
@@ -106,10 +120,15 @@ Return STRICT JSON:
     );
 
     const text = response.data.choices[0].message.content;
-    result = JSON.parse(text);
+
+    try {
+      result = JSON.parse(text);
+    } catch {
+      console.log("JSON parse error");
+    }
 
   } catch (err) {
-    console.log("AI error", err.message);
+    console.log("AI error:", err.message);
   }
 
   res.json(result);
