@@ -7,7 +7,7 @@ app.use(cors());
 
 const OPENAI_API_KEY = process.env.OPENAI_API_KEY;
 
-// 🔍 DEBUG: confirm key exists
+// 🔍 Debug: confirm key exists
 console.log("OPENAI KEY EXISTS:", !!OPENAI_API_KEY);
 
 const symbols = [
@@ -20,7 +20,7 @@ const symbols = [
   { name: "Bitcoin", symbol: "BTC-USD" }
 ];
 
-// 📊 Fetch prices
+// 📊 Fetch market data
 async function getPrices() {
   const results = [];
 
@@ -40,7 +40,7 @@ async function getPrices() {
     const now = new Date();
     const yesterday = new Date(now);
     yesterday.setDate(now.getDate() - 1);
-    yesterday.setHours(20, 0, 0, 0);
+    yesterday.setHours(20, 0, 0, 0); // 4pm ET
 
     let refPrice = null;
     let minDiff = Infinity;
@@ -81,7 +81,7 @@ app.get("/api/prices", async (req, res) => {
   }
 });
 
-// 🤖 AI explanation endpoint
+// 🤖 AI Explanation endpoint
 app.get("/api/explain", async (req, res) => {
   try {
     const prices = await getPrices();
@@ -106,7 +106,7 @@ Focus on macro interpretation (rates, risk sentiment, inflation).
       const response = await axios.post(
         "https://api.openai.com/v1/chat/completions",
         {
-          model: "gpt-4.1-mini",
+          model: "gpt-3.5-turbo",  // safest model
           messages: [{ role: "user", content: prompt }],
           temperature: 0.7
         },
@@ -121,7 +121,14 @@ Focus on macro interpretation (rates, risk sentiment, inflation).
       explanation = response.data.choices[0].message.content;
 
     } catch (err) {
-      console.error("OPENAI ERROR:", err.response?.data || err.message);
+      console.error(
+        "OPENAI ERROR FULL:",
+        JSON.stringify(err.response?.data || err.message)
+      );
+
+      explanation =
+        "ERROR: " +
+        (err.response?.data?.error?.message || err.message);
     }
 
     res.json({ explanation });
@@ -132,7 +139,7 @@ Focus on macro interpretation (rates, risk sentiment, inflation).
   }
 });
 
-// 🌐 Root route (optional but helpful)
+// 🌐 Root route
 app.get("/", (req, res) => {
   res.send("Macro backend is running");
 });
