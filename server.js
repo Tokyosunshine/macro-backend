@@ -5,6 +5,8 @@ const cors = require("cors");
 const app = express();
 app.use(cors());
 
+const OPENAI_API_KEY = process.env.OPENAI_API_KEY;
+
 const symbols = [
   { name: "USD/CHF", symbol: "CHF=X" },
   { name: "Oil", symbol: "CL=F" },
@@ -15,59 +17,106 @@ const symbols = [
   { name: "Bitcoin", symbol: "BTC-USD" }
 ];
 
-app.get("/api/prices", async (req, res) => {
-  try {
-    const results = [];
+async function getPrices() {
+  const results = [];
 
-    for (const s of symbols) {
-      const url = `https://query1.finance.yahoo.com/v8/finance/chart/${s.symbol}?range=2d&interval=5m`;
+  for (const s of symbols) {
+    const url = `https://query1.finance.yahoo.com/v8/finance/chart/${s.symbol}?range=2d&interval=5m`;
 
-      const response = await axios.get(url, {
-        headers: { "User-Agent": "Mozilla/5.0" }
-      });
+    const response = await axios.get(url, {
+      headers: { "User-Agent": "Mozilla/5.0" }
+    });
 
-      const chart = response.data.chart.result[0];
-      const closes = chart.indicators.quote[0].close;
-      const timestamps = chart.timestamp;
+    const chart = response.data.chart.result[0];
+    const closes = chart.indicators.quote[0].close;
+    const timestamps = chart.timestamp;
 
-      const latest = closes.slice().reverse().find(x => x !== null);
+    const latest = closes.slice().reverse().find(x => x !== null);
 
-      // 4pm ET ≈ 20:00 UTC
-      const now = new Date();
-      const yesterday = new Date(now);
-      yesterday.setDate(now.getDate() - 1);
-      yesterday.setHours(20, 0, 0, 0);
+    const now = new Date();
+    const yesterday = new Date(now);
+    yesterday.setDate(now.getDate() - 1);
+    yesterday.setHours(20, 0, 0, 0);
 
-      let refPrice = null;
-      let minDiff = Infinity;
+    let refPrice = null;
+    let minDiff = Infinity;
 
-      timestamps.forEach((ts, i) => {
-        if (!closes[i]) return;
-        const time = new Date(ts * 1000);
-        const diff = Math.abs(time - yesterday);
-        if (diff < minDiff) {
-          minDiff = diff;
-          refPrice = closes[i];
-        }
-      });
-
-      let pctChange = null;
-      if (latest && refPrice) {
-        pctChange = ((latest - refPrice) / refPrice) * 100;
+    timestamps.forEach((ts, i) => {
+      if (!closes[i]) return;
+      const time = new Date(ts * 1000);
+      const diff = Math.abs(time - yesterday);
+      if (diff < minDiff) {
+        minDiff = diff;
+        refPrice = closes[i];
       }
+    });
 
-      results.push({
-        name: s.name,
-        price: latest,
-        pctChange: pctChange
-      });
+    let pctChange = null;
+    if (latest && refPrice) {
+      pctChange = ((latest - refPrice) / refPrice) * 100;
     }
 
-    res.json(results);
+    results.push({
+      name: s.name,
+      price: latest,
+      pctChange: pctChange
+    });
+  }
+
+  return results;
+}
+
+// 🔥 MAIN API
+app.get("/api/prices", async (req, res) => {
+  try {
+    const prices = await getPrices();
+    res.json(prices);
+  } catch (err) {
+    res.status(500).send("Error fetching data");
+  }
+});
+
+// 🤖 AI EXPLANATION ENDPOINT
+app.get("/api/explain", async (req, res) => {
+  try {
+    const prices = await getPrices();
+
+    const summary = prices
+      .map(p => `${p.name}: ${p.pctChange?.toFixed(2)}%`)
+      .join(", ");
+
+    const prompt = `
+You are a macro strategist.
+
+Given the following market moves:
+${summary}
+
+Explain what is happening in markets in 2-3 sentences.
+Focus on macro interpretation (rates, risk sentiment, inflation).
+`;
+
+    const response = await axios.post(
+      "https://api.openai.com/v1/chat/completions",
+      {
+        model: "gpt-4o-mini",
+        messages: [{ role: "user", content: prompt }],
+        temperature: 0.7
+      },
+      {
+        headers: {
+          Authorization: `Bearer ${OPENAI_API_KEY}`,
+          "Content-Type": "application/json"
+        }
+      }
+    );
+
+    const explanation = response.data.choices[0].message.content;
+
+    res.json({ explanation });
 
   } catch (err) {
-    console.error(err);
-    res.status(500).send("Error fetching data");
+    console.error(err.response?.data || err.message);
+    res.status(500).send("AI error");
   }
 });
 
