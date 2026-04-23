@@ -25,46 +25,57 @@ async function getPrices() {
   const results = [];
 
   for (const s of symbols) {
-    const url = `https://query1.finance.yahoo.com/v8/finance/chart/${s.symbol}?range=2d&interval=5m`;
+    try {
+      const url = `https://query1.finance.yahoo.com/v8/finance/chart/${s.symbol}?range=2d&interval=5m`;
 
-    const response = await axios.get(url, {
-      headers: { "User-Agent": "Mozilla/5.0" }
-    });
+      const response = await axios.get(url, {
+        headers: { "User-Agent": "Mozilla/5.0" }
+      });
 
-    const chart = response.data.chart.result[0];
-    const closes = chart.indicators.quote[0].close;
-    const timestamps = chart.timestamp;
+      const chart = response.data.chart.result[0];
+      const closes = chart.indicators.quote[0].close;
+      const timestamps = chart.timestamp;
 
-    const latest = closes.slice().reverse().find(x => x !== null);
+      const latest = closes.slice().reverse().find(x => x !== null);
 
-    const now = new Date();
-    const yesterday = new Date(now);
-    yesterday.setDate(now.getDate() - 1);
-    yesterday.setHours(20, 0, 0, 0); // 4pm ET
+      const now = new Date();
+      const yesterday = new Date(now);
+      yesterday.setDate(now.getDate() - 1);
+      yesterday.setHours(20, 0, 0, 0); // 4pm ET
 
-    let refPrice = null;
-    let minDiff = Infinity;
+      let refPrice = null;
+      let minDiff = Infinity;
 
-    timestamps.forEach((ts, i) => {
-      if (!closes[i]) return;
-      const time = new Date(ts * 1000);
-      const diff = Math.abs(time - yesterday);
-      if (diff < minDiff) {
-        minDiff = diff;
-        refPrice = closes[i];
+      timestamps.forEach((ts, i) => {
+        if (!closes[i]) return;
+        const time = new Date(ts * 1000);
+        const diff = Math.abs(time - yesterday);
+        if (diff < minDiff) {
+          minDiff = diff;
+          refPrice = closes[i];
+        }
+      });
+
+      let pctChange = null;
+      if (latest && refPrice) {
+        pctChange = ((latest - refPrice) / refPrice) * 100;
       }
-    });
 
-    let pctChange = null;
-    if (latest && refPrice) {
-      pctChange = ((latest - refPrice) / refPrice) * 100;
+      results.push({
+        name: s.name,
+        price: latest,
+        pctChange: pctChange
+      });
+
+    } catch (err) {
+      console.error(`ERROR fetching ${s.name}:`, err.message);
+
+      results.push({
+        name: s.name,
+        price: null,
+        pctChange: null
+      });
     }
-
-    results.push({
-      name: s.name,
-      price: latest,
-      pctChange: pctChange
-    });
   }
 
   return results;
@@ -91,13 +102,21 @@ app.get("/api/explain", async (req, res) => {
       .join(", ");
 
     const prompt = `
-You are a macro strategist.
+You are a senior macro strategist at a global hedge fund.
 
-Given the following market moves:
+Market data:
 ${summary}
 
-Explain what is happening in markets in 2-3 sentences.
-Focus on macro interpretation (rates, risk sentiment, inflation).
+Tasks:
+1. Identify the dominant macro driver (rates, inflation, growth, risk sentiment)
+2. Explain key relationships (USD vs Gold, VIX vs equities, Oil vs inflation)
+3. State what this implies for markets
+
+Output:
+- 2–4 sentences
+- Sharp, professional tone
+- No fluff, no repetition
+- Write like a Bloomberg macro note
 `;
 
     let explanation = "AI temporarily unavailable.";
@@ -106,7 +125,7 @@ Focus on macro interpretation (rates, risk sentiment, inflation).
       const response = await axios.post(
         "https://api.openai.com/v1/chat/completions",
         {
-          model: "gpt-3.5-turbo",  // safest model
+          model: "gpt-3.5-turbo",
           messages: [{ role: "user", content: prompt }],
           temperature: 0.7
         },
