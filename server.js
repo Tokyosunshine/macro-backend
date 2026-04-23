@@ -18,7 +18,6 @@ const symbols = [
   { name: "Bitcoin", symbol: "BTC-USD" }
 ];
 
-// 📊 Fetch prices
 async function getPrices() {
   const results = [];
 
@@ -33,8 +32,10 @@ async function getPrices() {
       const chart = response.data.chart.result[0];
       const closes = chart.indicators.quote[0].close;
 
-      const latest = closes.slice().reverse().find(x => x !== null);
-      const prev = closes.find(x => x !== null);
+      const validCloses = closes.filter(x => x !== null).slice(-30);
+
+      const latest = validCloses[validCloses.length - 1];
+      const prev = validCloses[0];
 
       let pctChange = null;
       if (latest && prev) {
@@ -45,7 +46,8 @@ async function getPrices() {
         name: s.name,
         symbol: s.symbol,
         price: latest,
-        pctChange
+        pctChange,
+        history: validCloses
       });
 
     } catch {
@@ -53,7 +55,8 @@ async function getPrices() {
         name: s.name,
         symbol: s.symbol,
         price: null,
-        pctChange: null
+        pctChange: null,
+        history: []
       });
     }
   }
@@ -61,13 +64,11 @@ async function getPrices() {
   return results;
 }
 
-// 📈 Prices endpoint
 app.get("/api/prices", async (req, res) => {
   const prices = await getPrices();
   res.json(prices);
 });
 
-// 🤖 AI endpoint
 app.get("/api/explain", async (req, res) => {
   const prices = await getPrices();
 
@@ -84,16 +85,16 @@ ${summary}
 Tasks:
 1. Identify dominant macro driver
 2. Explain cross-asset relationships
-3. Provide clear takeaway
-4. Suggest a trade
+3. Provide takeaway
+4. Suggest trade
 5. Assign confidence (0-100)
 
 Return STRICT JSON:
 {
-  "takeaway": "short macro takeaway",
-  "action": "trade idea",
+  "takeaway": "...",
+  "action": "...",
   "confidence": number,
-  "commentary": "detailed 4-6 sentence macro explanation"
+  "commentary": "4-6 sentence macro explanation"
 }
 `;
 
@@ -119,10 +120,8 @@ Return STRICT JSON:
       }
     );
 
-    const text = response.data.choices[0].message.content;
-
     try {
-      result = JSON.parse(text);
+      result = JSON.parse(response.data.choices[0].message.content);
     } catch {
       console.log("JSON parse error");
     }
