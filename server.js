@@ -7,6 +7,9 @@ app.use(cors());
 
 const OPENAI_API_KEY = process.env.OPENAI_API_KEY;
 
+// 🔍 DEBUG: confirm key exists
+console.log("OPENAI KEY EXISTS:", !!OPENAI_API_KEY);
+
 const symbols = [
   { name: "USD/CHF", symbol: "CHF=X" },
   { name: "Oil", symbol: "CL=F" },
@@ -17,6 +20,7 @@ const symbols = [
   { name: "Bitcoin", symbol: "BTC-USD" }
 ];
 
+// 📊 Fetch prices
 async function getPrices() {
   const results = [];
 
@@ -66,17 +70,18 @@ async function getPrices() {
   return results;
 }
 
-// 🔥 MAIN API
+// 📈 Prices endpoint
 app.get("/api/prices", async (req, res) => {
   try {
     const prices = await getPrices();
     res.json(prices);
   } catch (err) {
-    res.status(500).send("Error fetching data");
+    console.error("PRICE ERROR:", err.message);
+    res.status(500).send("Error fetching prices");
   }
 });
 
-// 🤖 AI EXPLANATION ENDPOINT
+// 🤖 AI explanation endpoint
 app.get("/api/explain", async (req, res) => {
   try {
     const prices = await getPrices();
@@ -95,29 +100,41 @@ Explain what is happening in markets in 2-3 sentences.
 Focus on macro interpretation (rates, risk sentiment, inflation).
 `;
 
-    const response = await axios.post(
-      "https://api.openai.com/v1/chat/completions",
-      {
-        model: "gpt-4o-mini",
-        messages: [{ role: "user", content: prompt }],
-        temperature: 0.7
-      },
-      {
-        headers: {
-          Authorization: `Bearer ${OPENAI_API_KEY}`,
-          "Content-Type": "application/json"
-        }
-      }
-    );
+    let explanation = "AI temporarily unavailable.";
 
-    const explanation = response.data.choices[0].message.content;
+    try {
+      const response = await axios.post(
+        "https://api.openai.com/v1/chat/completions",
+        {
+          model: "gpt-4.1-mini",
+          messages: [{ role: "user", content: prompt }],
+          temperature: 0.7
+        },
+        {
+          headers: {
+            Authorization: `Bearer ${OPENAI_API_KEY}`,
+            "Content-Type": "application/json"
+          }
+        }
+      );
+
+      explanation = response.data.choices[0].message.content;
+
+    } catch (err) {
+      console.error("OPENAI ERROR:", err.response?.data || err.message);
+    }
 
     res.json({ explanation });
 
   } catch (err) {
-    console.error(err.response?.data || err.message);
+    console.error("EXPLAIN ERROR:", err.message);
     res.status(500).send("AI error");
   }
+});
+
+// 🌐 Root route (optional but helpful)
+app.get("/", (req, res) => {
+  res.send("Macro backend is running");
 });
 
 const PORT = process.env.PORT || 3001;
