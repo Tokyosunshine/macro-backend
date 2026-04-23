@@ -7,20 +7,18 @@ app.use(cors());
 
 const OPENAI_API_KEY = process.env.OPENAI_API_KEY;
 
-// 🔍 Debug: confirm key exists
-console.log("OPENAI KEY EXISTS:", !!OPENAI_API_KEY);
-
 const symbols = [
   { name: "USD/CHF", symbol: "CHF=X" },
   { name: "Oil", symbol: "CL=F" },
   { name: "Gold", symbol: "GC=F" },
   { name: "Silver", symbol: "SI=F" },
+  { name: "SPX Futures", symbol: "ES=F" },
   { name: "SPY", symbol: "SPY" },
   { name: "VIX", symbol: "^VIX" },
   { name: "Bitcoin", symbol: "BTC-USD" }
 ];
 
-// 📊 Fetch market data
+// 📊 Fetch prices
 async function getPrices() {
   const results = [];
 
@@ -34,47 +32,24 @@ async function getPrices() {
 
       const chart = response.data.chart.result[0];
       const closes = chart.indicators.quote[0].close;
-      const timestamps = chart.timestamp;
 
       const latest = closes.slice().reverse().find(x => x !== null);
 
-      const now = new Date();
-      const yesterday = new Date(now);
-      yesterday.setDate(now.getDate() - 1);
-      yesterday.setHours(20, 0, 0, 0); // 4pm ET
-
-      let refPrice = null;
-      let minDiff = Infinity;
-
-      timestamps.forEach((ts, i) => {
-        if (!closes[i]) return;
-        const time = new Date(ts * 1000);
-        const diff = Math.abs(time - yesterday);
-        if (diff < minDiff) {
-          minDiff = diff;
-          refPrice = closes[i];
-        }
-      });
+      const prev = closes.find(x => x !== null);
 
       let pctChange = null;
-      if (latest && refPrice) {
-        pctChange = ((latest - refPrice) / refPrice) * 100;
+      if (latest && prev) {
+        pctChange = ((latest - prev) / prev) * 100;
       }
 
       results.push({
         name: s.name,
         price: latest,
-        pctChange: pctChange
+        pctChange
       });
 
     } catch (err) {
-      console.error(`ERROR fetching ${s.name}:`, err.message);
-
-      results.push({
-        name: s.name,
-        price: null,
-        pctChange: null
-      });
+      results.push({ name: s.name, price: null, pctChange: null });
     }
   }
 
@@ -83,84 +58,65 @@ async function getPrices() {
 
 // 📈 Prices endpoint
 app.get("/api/prices", async (req, res) => {
-  try {
-    const prices = await getPrices();
-    res.json(prices);
-  } catch (err) {
-    console.error("PRICE ERROR:", err.message);
-    res.status(500).send("Error fetching prices");
-  }
+  const prices = await getPrices();
+  res.json(prices);
 });
 
-// 🤖 AI Explanation endpoint
+// 🤖 AI endpoint (returns structured output)
 app.get("/api/explain", async (req, res) => {
-  try {
-    const prices = await getPrices();
+  const prices = await getPrices();
 
-    const summary = prices
-      .map(p => `${p.name}: ${p.pctChange?.toFixed(2)}%`)
-      .join(", ");
+  const summary = prices
+    .map(p => `${p.name}: ${p.pctChange?.toFixed(2)}%`)
+    .join(", ");
 
-    const prompt = `
-You are a senior macro strategist at a global hedge fund.
+  const prompt = `
+You are a macro hedge fund strategist.
 
-Market data:
+Market:
 ${summary}
 
-Tasks:
-1. Identify the dominant macro driver (rates, inflation, growth, risk sentiment)
-2. Explain key relationships (USD vs Gold, VIX vs equities, Oil vs inflation)
-3. State what this implies for markets
-
-Output:
-- 2–4 sentences
-- Sharp, professional tone
-- No fluff, no repetition
-- Write like a Bloomberg macro note
+Return STRICT JSON:
+{
+  "takeaway": "...",
+  "action": "...",
+  "commentary": "..."
+}
 `;
 
-    let explanation = "AI temporarily unavailable.";
+  let result = {
+    takeaway: "No signal",
+    action: "No action",
+    commentary: "AI unavailable"
+  };
 
-    try {
-      const response = await axios.post(
-        "https://api.openai.com/v1/chat/completions",
-        {
-          model: "gpt-3.5-turbo",
-          messages: [{ role: "user", content: prompt }],
-          temperature: 0.7
-        },
-        {
-          headers: {
-            Authorization: `Bearer ${OPENAI_API_KEY}`,
-            "Content-Type": "application/json"
-          }
+  try {
+    const response = await axios.post(
+      "https://api.openai.com/v1/chat/completions",
+      {
+        model: "gpt-3.5-turbo",
+        messages: [{ role: "user", content: prompt }]
+      },
+      {
+        headers: {
+          Authorization: `Bearer ${OPENAI_API_KEY}`,
+          "Content-Type": "application/json"
         }
-      );
+      }
+    );
 
-      explanation = response.data.choices[0].message.content;
-
-    } catch (err) {
-      console.error(
-        "OPENAI ERROR FULL:",
-        JSON.stringify(err.response?.data || err.message)
-      );
-
-      explanation =
-        "ERROR: " +
-        (err.response?.data?.error?.message || err.message);
-    }
-
-    res.json({ explanation });
+    const text = response.data.choices[0].message.content;
+    result = JSON.parse(text);
 
   } catch (err) {
-    console.error("EXPLAIN ERROR:", err.message);
-    res.status(500).send("AI error");
+    console.log("AI error", err.message);
   }
+
+  res.json(result);
 });
 
-// 🌐 Root route
 app.get("/", (req, res) => {
-  res.send("Macro backend is running");
+  res.send("Backend running");
 });
 
 const PORT = process.env.PORT || 3001;
