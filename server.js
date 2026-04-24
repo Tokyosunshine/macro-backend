@@ -20,12 +20,12 @@ const symbols = [
   { name: "Bitcoin", symbol: "BTC-USD" }
 ];
 
-// 🔥 TEST ROUTE (VERY IMPORTANT)
+// 🧪 TEST ROUTE (deployment check)
 app.get("/api/test", (req, res) => {
   res.send("NEW VERSION WORKING");
 });
 
-// 🔥 MARKET DATA
+// 🔥 MARKET DATA (robust)
 async function getPrices() {
   const results = [];
 
@@ -38,11 +38,12 @@ async function getPrices() {
       });
 
       const chart = response.data?.chart?.result?.[0];
-
       if (!chart) throw new Error("No chart data");
 
       const closes = chart.indicators.quote[0].close;
       const valid = closes.filter(x => x !== null);
+
+      if (valid.length < 2) throw new Error("Not enough data");
 
       const latest = valid[valid.length - 1];
       const prev = valid[0];
@@ -56,7 +57,7 @@ async function getPrices() {
       });
 
     } catch (err) {
-      console.log("Data error:", s.name, err.message);
+      console.log("❌ Data error:", s.name, err.message);
 
       results.push({
         name: s.name,
@@ -69,7 +70,7 @@ async function getPrices() {
   return results;
 }
 
-// 🧾 GOOGLE SHEET
+// 🧾 GOOGLE SHEET (FIXED PARSING)
 app.get("/api/sheet", async (req, res) => {
   try {
     const url = "https://docs.google.com/spreadsheets/d/e/2PACX-1vQs38DKrijbxXURWYSmVoP9RN2mNSvphDI6yCR5aBXSFmALsuUm4MNK54f3MphaBAnHETqRtzpY5pt6/pub?gid=1778497186&single=true&output=csv";
@@ -80,19 +81,40 @@ app.get("/api/sheet", async (req, res) => {
 
     const parsed = rows
       .slice(1) // skip header
-      .map(r => r.split(","))
-      .filter(r => r.length >= 2 && r[0])
-      .map(r => ({
-        key: r[0].replace(/"/g, "").trim(),
-        value: r[1] ? r[1].replace(/"/g, "").trim() : ""
-      }));
+      .map(row => {
+        if (!row) return null;
 
-    console.log("SHEET DATA:", parsed);
+        // 🔥 robust CSV handling (supports quoted numbers with commas)
+        const match = row.match(/^"?(.*?)"?,"?(.*?)"?$/);
+        if (!match) return null;
+
+        let key = match[1]?.trim();
+        let value = match[2]?.trim();
+
+        if (value) {
+          value = value.replace(/"/g, "");
+
+          // remove thousands separators safely
+          if (!value.includes("%")) {
+            value = value.replace(/,/g, "");
+          }
+
+          // optional: re-format numbers nicely
+          if (!isNaN(value) && value !== "") {
+            value = Number(value).toLocaleString();
+          }
+        }
+
+        return { key, value };
+      })
+      .filter(Boolean);
+
+    console.log("✅ SHEET DATA:", parsed);
 
     res.json(parsed);
 
   } catch (err) {
-    console.log("Sheet error:", err.message);
+    console.log("❌ Sheet error:", err.message);
     res.json([]);
   }
 });
@@ -103,7 +125,7 @@ app.get("/api/prices", async (req, res) => {
   res.json(prices);
 });
 
-// 🤖 AI
+// 🤖 AI EXPLANATION
 app.get("/api/explain", async (req, res) => {
   const prices = await getPrices();
 
@@ -148,10 +170,14 @@ Return JSON:
       }
     );
 
-    result = JSON.parse(response.data.choices[0].message.content);
+    try {
+      result = JSON.parse(response.data.choices[0].message.content);
+    } catch {
+      console.log("⚠️ AI JSON parse issue");
+    }
 
   } catch (err) {
-    console.log("AI error:", err.message);
+    console.log("❌ AI error:", err.message);
   }
 
   res.json(result);
@@ -162,8 +188,8 @@ app.get("/", (req, res) => {
   res.send("Backend running");
 });
 
-// 🚀 START
+// 🚀 START SERVER
 const PORT = process.env.PORT || 3001;
 app.listen(PORT, () => {
-  console.log("Server running on port " + PORT);
+  console.log(`Server running on port ${PORT}`);
 });
