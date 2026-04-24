@@ -7,21 +7,20 @@ app.use(cors());
 
 const OPENAI_API_KEY = process.env.OPENAI_API_KEY;
 
-// 📊 Expanded indicator set
+// 📊 Indicators
 const symbols = [
   { name: "USD/CHF", symbol: "CHF=X" },
   { name: "DXY", symbol: "DX-Y.NYB" },
   { name: "US 10Y", symbol: "^TNX" },
   { name: "Oil", symbol: "CL=F" },
   { name: "Gold", symbol: "GC=F" },
-  { name: "Silver", symbol: "SI=F" },
   { name: "SPX Futures", symbol: "ES=F" },
   { name: "NASDAQ", symbol: "QQQ" },
   { name: "VIX", symbol: "^VIX" },
   { name: "Bitcoin", symbol: "BTC-USD" }
 ];
 
-// 🔥 Reliable chart endpoint only
+// 🔥 Market data (stable)
 async function getPrices() {
   const results = [];
 
@@ -33,14 +32,9 @@ async function getPrices() {
         headers: { "User-Agent": "Mozilla/5.0" }
       });
 
-      const chart = response.data?.chart?.result?.[0];
-
-      if (!chart) throw new Error("No chart data");
-
+      const chart = response.data.chart.result[0];
       const closes = chart.indicators.quote[0].close;
       const valid = closes.filter(x => x !== null);
-
-      if (valid.length < 2) throw new Error("Not enough data");
 
       const latest = valid[valid.length - 1];
       const prev = valid[0];
@@ -49,17 +43,13 @@ async function getPrices() {
 
       results.push({
         name: s.name,
-        symbol: s.symbol,
         price: latest,
         pctChange
       });
 
-    } catch (err) {
-      console.log("❌ Data error:", s.name);
-
+    } catch {
       results.push({
         name: s.name,
-        symbol: s.symbol,
         price: 0,
         pctChange: 0
       });
@@ -69,7 +59,32 @@ async function getPrices() {
   return results;
 }
 
-// 📊 API: prices
+// 🧾 Google Sheet
+app.get("/api/sheet", async (req, res) => {
+  try {
+    const url = "https://docs.google.com/spreadsheets/d/e/2PACX-1vQs38DKrijbxXURWYSmVoP9RN2mNSvphDI6yCR5aBXSFmALsuUm4MNK54f3MphaBAnHETqRtzpY5pt6/pub?gid=1778497186&single=true&output=csv";
+
+    const response = await axios.get(url);
+
+    const rows = response.data.split("\n");
+
+    const parsed = rows
+      .map(r => r.split(","))
+      .filter(r => r.length >= 2 && r[0])
+      .map(r => ({
+        key: r[0].trim(),
+        value: r[1]?.trim() || ""
+      }));
+
+    res.json(parsed);
+
+  } catch (err) {
+    console.log("Sheet error:", err.message);
+    res.json([]);
+  }
+});
+
+// 📊 Prices
 app.get("/api/prices", async (req, res) => {
   const prices = await getPrices();
   res.json(prices);
@@ -134,6 +149,4 @@ app.get("/", (req, res) => {
 });
 
 const PORT = process.env.PORT || 3001;
-app.listen(PORT, () =>
-  console.log(`Server running on port ${PORT}`)
-);
+app.listen(PORT, () => console.log(`Server running on port ${PORT}`));
