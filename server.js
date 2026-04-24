@@ -20,7 +20,7 @@ const symbols = [
   { name: "Bitcoin", symbol: "BTC-USD" }
 ];
 
-// 🔥 TEST ROUTE (use this to confirm deployment)
+// 🔥 TEST ROUTE (VERY IMPORTANT)
 app.get("/api/test", (req, res) => {
   res.send("NEW VERSION WORKING");
 });
@@ -38,12 +38,11 @@ async function getPrices() {
       });
 
       const chart = response.data?.chart?.result?.[0];
+
       if (!chart) throw new Error("No chart data");
 
       const closes = chart.indicators.quote[0].close;
       const valid = closes.filter(x => x !== null);
-
-      if (valid.length < 2) throw new Error("Not enough data");
 
       const latest = valid[valid.length - 1];
       const prev = valid[0];
@@ -57,7 +56,7 @@ async function getPrices() {
       });
 
     } catch (err) {
-      console.log("❌ Data error:", s.name, err.message);
+      console.log("Data error:", s.name, err.message);
 
       results.push({
         name: s.name,
@@ -70,23 +69,17 @@ async function getPrices() {
   return results;
 }
 
-// 📊 PRICES
-app.get("/api/prices", async (req, res) => {
-  const prices = await getPrices();
-  res.json(prices);
-});
-
-// 🧾 GOOGLE SHEET (YOUR LINK)
+// 🧾 GOOGLE SHEET
 app.get("/api/sheet", async (req, res) => {
   try {
     const url = "https://docs.google.com/spreadsheets/d/e/2PACX-1vQs38DKrijbxXURWYSmVoP9RN2mNSvphDI6yCR5aBXSFmALsuUm4MNK54f3MphaBAnHETqRtzpY5pt6/pub?gid=1778497186&single=true&output=csv";
 
     const response = await axios.get(url);
+
     const rows = response.data.split("\n");
 
-    // skip header row, clean quotes
     const parsed = rows
-      .slice(1)
+      .slice(1) // skip header
       .map(r => r.split(","))
       .filter(r => r.length >= 2 && r[0])
       .map(r => ({
@@ -94,14 +87,20 @@ app.get("/api/sheet", async (req, res) => {
         value: r[1] ? r[1].replace(/"/g, "").trim() : ""
       }));
 
-    console.log("✅ SHEET:", parsed);
+    console.log("SHEET DATA:", parsed);
 
     res.json(parsed);
 
   } catch (err) {
-    console.log("❌ Sheet error:", err.message);
+    console.log("Sheet error:", err.message);
     res.json([]);
   }
+});
+
+// 📊 PRICES
+app.get("/api/prices", async (req, res) => {
+  const prices = await getPrices();
+  res.json(prices);
 });
 
 // 🤖 AI
@@ -149,25 +148,22 @@ Return JSON:
       }
     );
 
-    try {
-      result = JSON.parse(response.data.choices[0].message.content);
-    } catch {
-      console.log("⚠️ AI JSON parse issue");
-    }
+    result = JSON.parse(response.data.choices[0].message.content);
 
   } catch (err) {
-    console.log("❌ AI error:", err.message);
+    console.log("AI error:", err.message);
   }
 
   res.json(result);
 });
 
-// ROOT
+// 🧪 ROOT
 app.get("/", (req, res) => {
   res.send("Backend running");
 });
 
+// 🚀 START
 const PORT = process.env.PORT || 3001;
 app.listen(PORT, () => {
-  console.log(`Server running on port ${PORT}`);
+  console.log("Server running on port " + PORT);
 });
