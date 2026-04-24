@@ -20,7 +20,12 @@ const symbols = [
   { name: "Bitcoin", symbol: "BTC-USD" }
 ];
 
-// 🔥 MARKET DATA (robust)
+// 🔥 TEST ROUTE (use this to confirm deployment)
+app.get("/api/test", (req, res) => {
+  res.send("NEW VERSION WORKING");
+});
+
+// 🔥 MARKET DATA
 async function getPrices() {
   const results = [];
 
@@ -33,7 +38,6 @@ async function getPrices() {
       });
 
       const chart = response.data?.chart?.result?.[0];
-
       if (!chart) throw new Error("No chart data");
 
       const closes = chart.indicators.quote[0].close;
@@ -66,16 +70,21 @@ async function getPrices() {
   return results;
 }
 
-// 🧾 GOOGLE SHEET ENDPOINT (FIXED)
+// 📊 PRICES
+app.get("/api/prices", async (req, res) => {
+  const prices = await getPrices();
+  res.json(prices);
+});
+
+// 🧾 GOOGLE SHEET (YOUR LINK)
 app.get("/api/sheet", async (req, res) => {
   try {
     const url = "https://docs.google.com/spreadsheets/d/e/2PACX-1vQs38DKrijbxXURWYSmVoP9RN2mNSvphDI6yCR5aBXSFmALsuUm4MNK54f3MphaBAnHETqRtzpY5pt6/pub?gid=1778497186&single=true&output=csv";
 
     const response = await axios.get(url);
-
     const rows = response.data.split("\n");
 
-    // 🔥 Skip header row + clean parsing
+    // skip header row, clean quotes
     const parsed = rows
       .slice(1)
       .map(r => r.split(","))
@@ -85,7 +94,7 @@ app.get("/api/sheet", async (req, res) => {
         value: r[1] ? r[1].replace(/"/g, "").trim() : ""
       }));
 
-    console.log("✅ SHEET DATA:", parsed);
+    console.log("✅ SHEET:", parsed);
 
     res.json(parsed);
 
@@ -95,13 +104,7 @@ app.get("/api/sheet", async (req, res) => {
   }
 });
 
-// 📊 PRICES
-app.get("/api/prices", async (req, res) => {
-  const prices = await getPrices();
-  res.json(prices);
-});
-
-// 🤖 AI EXPLANATION
+// 🤖 AI
 app.get("/api/explain", async (req, res) => {
   const prices = await getPrices();
 
@@ -159,12 +162,11 @@ Return JSON:
   res.json(result);
 });
 
-// 🧪 HEALTH CHECK
+// ROOT
 app.get("/", (req, res) => {
   res.send("Backend running");
 });
 
-// 🚀 START SERVER
 const PORT = process.env.PORT || 3001;
 app.listen(PORT, () => {
   console.log(`Server running on port ${PORT}`);
