@@ -7,12 +7,14 @@ app.use(cors());
 
 const OPENAI_API_KEY = process.env.OPENAI_API_KEY;
 
-// ✅ ORIGINAL INDICATORS
+// ✅ INDICATORS (UPDATED)
 const symbols = [
   { name: "USD/CHF", symbol: "CHF=X" },
   { name: "Oil", symbol: "CL=F" },
   { name: "Gold", symbol: "GC=F" },
   { name: "Silver", symbol: "SI=F" },
+  { name: "Copper", symbol: "HG=F" },       // NEW
+  { name: "US 10Y", symbol: "^TNX" },       // NEW
   { name: "SPX Futures", symbol: "ES=F" },
   { name: "SPY", symbol: "SPY" },
   { name: "VIX", symbol: "^VIX" },
@@ -58,7 +60,7 @@ async function getPrices() {
   return results;
 }
 
-// 🧾 GOOGLE SHEET (ROBUST — NO ROW LOSS)
+// 🧾 GOOGLE SHEET
 app.get("/api/sheet", async (req, res) => {
   try {
     const url = "https://docs.google.com/spreadsheets/d/e/2PACX-1vQs38DKrijbxXURWYSmVoP9RN2mNSvphDI6yCR5aBXSFmALsuUm4MNK54f3MphaBAnHETqRtzpY5pt6/pub?gid=1778497186&single=true&output=csv";
@@ -69,10 +71,9 @@ app.get("/api/sheet", async (req, res) => {
 
     const parsed = rows
       .map(r => r.trim())
-      .filter(r => r.length > 0) // 🔥 removes empty rows only
+      .filter(r => r.length > 0)
       .map(r => {
-        const parts = r.split(/,(.+)/); // 🔥 split only first comma
-
+        const parts = r.split(/,(.+)/);
         return {
           key: parts[0]?.replace(/"/g, "").trim(),
           value: parts[1]?.replace(/"/g, "").trim()
@@ -82,8 +83,7 @@ app.get("/api/sheet", async (req, res) => {
 
     res.json(parsed);
 
-  } catch (err) {
-    console.log("Sheet error:", err.message);
+  } catch {
     res.json([]);
   }
 });
@@ -111,17 +111,11 @@ Return JSON:
 {
   "takeaway": "...",
   "action": "...",
-  "confidence": number,
   "commentary": "4-6 sentences"
 }
 `;
 
-  let result = {
-    takeaway: "",
-    action: "",
-    confidence: null,
-    commentary: ""
-  };
+  let result = { takeaway: "", action: "", commentary: "" };
 
   try {
     const response = await axios.post(
@@ -145,11 +139,9 @@ Return JSON:
   res.json(result);
 });
 
-// ROOT
 app.get("/", (req, res) => {
   res.send("Backend running");
 });
 
-// START
 const PORT = process.env.PORT || 3001;
 app.listen(PORT, () => console.log("Server running on port " + PORT));
