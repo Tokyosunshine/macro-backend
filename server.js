@@ -7,7 +7,6 @@ app.use(cors());
 
 const OPENAI_API_KEY = process.env.OPENAI_API_KEY;
 
-// 📊 Symbols
 const symbols = [
   { name: "USD/CHF", symbol: "CHF=X" },
   { name: "Oil", symbol: "CL=F" },
@@ -19,23 +18,45 @@ const symbols = [
   { name: "Bitcoin", symbol: "BTC-USD" }
 ];
 
-
-// 📈 Fetch market data (REAL % change)
+// 🔥 ROBUST DATA FETCH
 async function getPrices() {
   const results = [];
 
   for (const s of symbols) {
     try {
+      // Primary: quote
       const url = `https://query1.finance.yahoo.com/v7/finance/quote?symbols=${s.symbol}`;
-
       const response = await axios.get(url);
       const quote = response.data?.quoteResponse?.result?.[0];
+
+      let price = quote?.regularMarketPrice ?? null;
+      let pctChange = quote?.regularMarketChangePercent ?? null;
+
+      // 🔴 Fallback
+      if (!price) {
+        const chartUrl = `https://query1.finance.yahoo.com/v8/finance/chart/${s.symbol}?range=1d&interval=5m`;
+        const chartRes = await axios.get(chartUrl);
+
+        const closes =
+          chartRes.data.chart.result[0].indicators.quote[0].close;
+
+        const valid = closes.filter(x => x !== null);
+
+        const latest = valid[valid.length - 1];
+        const prev = valid[0];
+
+        price = latest;
+
+        if (latest && prev) {
+          pctChange = ((latest - prev) / prev) * 100;
+        }
+      }
 
       results.push({
         name: s.name,
         symbol: s.symbol,
-        price: quote?.regularMarketPrice ?? null,
-        pctChange: quote?.regularMarketChangePercent ?? null
+        price,
+        pctChange
       });
 
     } catch (err) {
@@ -53,15 +74,13 @@ async function getPrices() {
   return results;
 }
 
-
-// 📊 API: Prices
+// 📊 Prices
 app.get("/api/prices", async (req, res) => {
   const prices = await getPrices();
   res.json(prices);
 });
 
-
-// 🤖 API: AI Explanation
+// 🤖 AI
 app.get("/api/explain", async (req, res) => {
   const prices = await getPrices();
 
@@ -70,30 +89,23 @@ app.get("/api/explain", async (req, res) => {
     .join(", ");
 
   const prompt = `
-You are a senior macro hedge fund strategist.
+You are a macro hedge fund strategist.
 
 Market:
 ${summary}
 
-Tasks:
-1. Identify dominant macro driver
-2. Explain cross-asset relationships
-3. Provide a clear takeaway
-4. Suggest a trade
-5. Assign confidence (0-100)
-
-Return STRICT JSON:
+Return JSON:
 {
-  "takeaway": "short macro takeaway",
-  "action": "trade idea",
+  "takeaway": "...",
+  "action": "...",
   "confidence": number,
-  "commentary": "detailed 4-6 sentence macro explanation"
+  "commentary": "4-6 sentences"
 }
 `;
 
   let result = {
-    takeaway: "No signal",
-    action: "No action",
+    takeaway: "",
+    action: "",
     confidence: null,
     commentary: "AI unavailable"
   };
@@ -113,14 +125,9 @@ Return STRICT JSON:
       }
     );
 
-    const text = response.data?.choices?.[0]?.message?.content;
-
     try {
-      result = JSON.parse(text);
-    } catch {
-      console.log("JSON parse error (AI output not clean)");
-    }
-
+      result = JSON.parse(response.data.choices[0].message.content);
+    } catch {}
   } catch (err) {
     console.log("AI error:", err.message);
   }
@@ -128,15 +135,9 @@ Return STRICT JSON:
   res.json(result);
 });
 
-
-// 🧪 Health check
 app.get("/", (req, res) => {
   res.send("Backend running");
 });
 
-
-// 🚀 Start server
 const PORT = process.env.PORT || 3001;
-app.listen(PORT, () => {
-  console.log(`Server running on port ${PORT}`);
-});
+app.listen(PORT, () => console.log(`Server running on port ${PORT}`));
