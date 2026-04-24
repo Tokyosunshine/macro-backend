@@ -20,7 +20,7 @@ const symbols = [
   { name: "Bitcoin", symbol: "BTC-USD" }
 ];
 
-// 🔥 Market data (stable)
+// 🔥 MARKET DATA (robust)
 async function getPrices() {
   const results = [];
 
@@ -32,9 +32,14 @@ async function getPrices() {
         headers: { "User-Agent": "Mozilla/5.0" }
       });
 
-      const chart = response.data.chart.result[0];
+      const chart = response.data?.chart?.result?.[0];
+
+      if (!chart) throw new Error("No chart data");
+
       const closes = chart.indicators.quote[0].close;
       const valid = closes.filter(x => x !== null);
+
+      if (valid.length < 2) throw new Error("Not enough data");
 
       const latest = valid[valid.length - 1];
       const prev = valid[0];
@@ -47,7 +52,9 @@ async function getPrices() {
         pctChange
       });
 
-    } catch {
+    } catch (err) {
+      console.log("❌ Data error:", s.name, err.message);
+
       results.push({
         name: s.name,
         price: 0,
@@ -59,7 +66,7 @@ async function getPrices() {
   return results;
 }
 
-// 🧾 Google Sheet
+// 🧾 GOOGLE SHEET ENDPOINT (FIXED)
 app.get("/api/sheet", async (req, res) => {
   try {
     const url = "https://docs.google.com/spreadsheets/d/e/2PACX-1vQs38DKrijbxXURWYSmVoP9RN2mNSvphDI6yCR5aBXSFmALsuUm4MNK54f3MphaBAnHETqRtzpY5pt6/pub?gid=1778497186&single=true&output=csv";
@@ -68,29 +75,33 @@ app.get("/api/sheet", async (req, res) => {
 
     const rows = response.data.split("\n");
 
+    // 🔥 Skip header row + clean parsing
     const parsed = rows
+      .slice(1)
       .map(r => r.split(","))
       .filter(r => r.length >= 2 && r[0])
       .map(r => ({
-        key: r[0].trim(),
-        value: r[1]?.trim() || ""
+        key: r[0].replace(/"/g, "").trim(),
+        value: r[1] ? r[1].replace(/"/g, "").trim() : ""
       }));
+
+    console.log("✅ SHEET DATA:", parsed);
 
     res.json(parsed);
 
   } catch (err) {
-    console.log("Sheet error:", err.message);
+    console.log("❌ Sheet error:", err.message);
     res.json([]);
   }
 });
 
-// 📊 Prices
+// 📊 PRICES
 app.get("/api/prices", async (req, res) => {
   const prices = await getPrices();
   res.json(prices);
 });
 
-// 🤖 AI
+// 🤖 AI EXPLANATION
 app.get("/api/explain", async (req, res) => {
   const prices = await getPrices();
 
@@ -135,18 +146,26 @@ Return JSON:
       }
     );
 
-    result = JSON.parse(response.data.choices[0].message.content);
+    try {
+      result = JSON.parse(response.data.choices[0].message.content);
+    } catch {
+      console.log("⚠️ AI JSON parse issue");
+    }
 
   } catch (err) {
-    console.log("AI error:", err.message);
+    console.log("❌ AI error:", err.message);
   }
 
   res.json(result);
 });
 
+// 🧪 HEALTH CHECK
 app.get("/", (req, res) => {
   res.send("Backend running");
 });
 
+// 🚀 START SERVER
 const PORT = process.env.PORT || 3001;
-app.listen(PORT, () => console.log(`Server running on port ${PORT}`));
+app.listen(PORT, () => {
+  console.log(`Server running on port ${PORT}`);
+});
