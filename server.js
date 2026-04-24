@@ -18,63 +18,58 @@ const symbols = [
   { name: "Bitcoin", symbol: "BTC-USD" }
 ];
 
-// 🔥 ROBUST DATA FETCH
+// 🔥 RELIABLE DATA SOURCE ONLY
 async function getPrices() {
   const results = [];
 
   for (const s of symbols) {
     try {
-      // Primary: quote
-      const url = `https://query1.finance.yahoo.com/v7/finance/quote?symbols=${s.symbol}`;
-      const response = await axios.get(url);
-      const quote = response.data?.quoteResponse?.result?.[0];
+      const url = `https://query1.finance.yahoo.com/v8/finance/chart/${s.symbol}?range=1d&interval=5m`;
 
-      let price = quote?.regularMarketPrice ?? null;
-      let pctChange = quote?.regularMarketChangePercent ?? null;
+      const response = await axios.get(url, {
+        headers: { "User-Agent": "Mozilla/5.0" }
+      });
 
-      // 🔴 Fallback
-      if (!price) {
-        const chartUrl = `https://query1.finance.yahoo.com/v8/finance/chart/${s.symbol}?range=1d&interval=5m`;
-        const chartRes = await axios.get(chartUrl);
+      const chart = response.data?.chart?.result?.[0];
 
-        const closes =
-          chartRes.data.chart.result[0].indicators.quote[0].close;
+      if (!chart) throw new Error("No chart data");
 
-        const valid = closes.filter(x => x !== null);
+      const closes = chart.indicators.quote[0].close;
 
-        const latest = valid[valid.length - 1];
-        const prev = valid[0];
+      const valid = closes.filter(x => x !== null);
 
-        price = latest;
+      if (valid.length < 2) throw new Error("Not enough data");
 
-        if (latest && prev) {
-          pctChange = ((latest - prev) / prev) * 100;
-        }
-      }
+      const latest = valid[valid.length - 1];
+      const prev = valid[0];
+
+      const pctChange = ((latest - prev) / prev) * 100;
 
       results.push({
         name: s.name,
         symbol: s.symbol,
-        price,
+        price: latest,
         pctChange
       });
 
     } catch (err) {
-      console.log("Data error:", s.name);
+      console.log("❌ Data error:", s.name, err.message);
 
       results.push({
         name: s.name,
         symbol: s.symbol,
-        price: null,
-        pctChange: null
+        price: 0,
+        pctChange: 0
       });
     }
   }
 
+  console.log("✅ Prices:", results.map(r => r.price));
+
   return results;
 }
 
-// 📊 Prices
+// 📊 API
 app.get("/api/prices", async (req, res) => {
   const prices = await getPrices();
   res.json(prices);
@@ -85,11 +80,11 @@ app.get("/api/explain", async (req, res) => {
   const prices = await getPrices();
 
   const summary = prices
-    .map(p => `${p.name}: ${p.pctChange?.toFixed(2)}%`)
+    .map(p => `${p.name}: ${p.pctChange.toFixed(2)}%`)
     .join(", ");
 
   const prompt = `
-You are a macro hedge fund strategist.
+You are a macro strategist.
 
 Market:
 ${summary}
@@ -125,9 +120,8 @@ Return JSON:
       }
     );
 
-    try {
-      result = JSON.parse(response.data.choices[0].message.content);
-    } catch {}
+    result = JSON.parse(response.data.choices[0].message.content);
+
   } catch (err) {
     console.log("AI error:", err.message);
   }
@@ -140,4 +134,6 @@ app.get("/", (req, res) => {
 });
 
 const PORT = process.env.PORT || 3001;
-app.listen(PORT, () => console.log(`Server running on port ${PORT}`));
+app.listen(PORT, () =>
+  console.log(`Server running on port ${PORT}`)
+);
