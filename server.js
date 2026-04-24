@@ -7,25 +7,19 @@ app.use(cors());
 
 const OPENAI_API_KEY = process.env.OPENAI_API_KEY;
 
-// 📊 Indicators
+// ✅ ORIGINAL INDICATORS
 const symbols = [
   { name: "USD/CHF", symbol: "CHF=X" },
-  { name: "DXY", symbol: "DX-Y.NYB" },
-  { name: "US 10Y", symbol: "^TNX" },
   { name: "Oil", symbol: "CL=F" },
   { name: "Gold", symbol: "GC=F" },
+  { name: "Silver", symbol: "SI=F" },
   { name: "SPX Futures", symbol: "ES=F" },
-  { name: "NASDAQ", symbol: "QQQ" },
+  { name: "SPY", symbol: "SPY" },
   { name: "VIX", symbol: "^VIX" },
   { name: "Bitcoin", symbol: "BTC-USD" }
 ];
 
-// 🧪 TEST ROUTE (deployment check)
-app.get("/api/test", (req, res) => {
-  res.send("NEW VERSION WORKING");
-});
-
-// 🔥 MARKET DATA (robust)
+// 📊 MARKET DATA
 async function getPrices() {
   const results = [];
 
@@ -37,13 +31,9 @@ async function getPrices() {
         headers: { "User-Agent": "Mozilla/5.0" }
       });
 
-      const chart = response.data?.chart?.result?.[0];
-      if (!chart) throw new Error("No chart data");
-
+      const chart = response.data.chart.result[0];
       const closes = chart.indicators.quote[0].close;
       const valid = closes.filter(x => x !== null);
-
-      if (valid.length < 2) throw new Error("Not enough data");
 
       const latest = valid[valid.length - 1];
       const prev = valid[0];
@@ -56,9 +46,7 @@ async function getPrices() {
         pctChange
       });
 
-    } catch (err) {
-      console.log("❌ Data error:", s.name, err.message);
-
+    } catch {
       results.push({
         name: s.name,
         price: 0,
@@ -70,7 +58,7 @@ async function getPrices() {
   return results;
 }
 
-// 🧾 GOOGLE SHEET (FIXED PARSING)
+// 🧾 GOOGLE SHEET (ROBUST — NO ROW LOSS)
 app.get("/api/sheet", async (req, res) => {
   try {
     const url = "https://docs.google.com/spreadsheets/d/e/2PACX-1vQs38DKrijbxXURWYSmVoP9RN2mNSvphDI6yCR5aBXSFmALsuUm4MNK54f3MphaBAnHETqRtzpY5pt6/pub?gid=1778497186&single=true&output=csv";
@@ -80,52 +68,32 @@ app.get("/api/sheet", async (req, res) => {
     const rows = response.data.split("\n");
 
     const parsed = rows
-      .slice(1) // skip header
-      .map(row => {
-        if (!row) return null;
+      .map(r => r.trim())
+      .filter(r => r.length > 0) // 🔥 removes empty rows only
+      .map(r => {
+        const parts = r.split(/,(.+)/); // 🔥 split only first comma
 
-        // 🔥 robust CSV handling (supports quoted numbers with commas)
-        const match = row.match(/^"?(.*?)"?,"?(.*?)"?$/);
-        if (!match) return null;
-
-        let key = match[1]?.trim();
-        let value = match[2]?.trim();
-
-        if (value) {
-          value = value.replace(/"/g, "");
-
-          // remove thousands separators safely
-          if (!value.includes("%")) {
-            value = value.replace(/,/g, "");
-          }
-
-          // optional: re-format numbers nicely
-          if (!isNaN(value) && value !== "") {
-            value = Number(value).toLocaleString();
-          }
-        }
-
-        return { key, value };
+        return {
+          key: parts[0]?.replace(/"/g, "").trim(),
+          value: parts[1]?.replace(/"/g, "").trim()
+        };
       })
-      .filter(Boolean);
-
-    console.log("✅ SHEET DATA:", parsed);
+      .filter(r => r.key);
 
     res.json(parsed);
 
   } catch (err) {
-    console.log("❌ Sheet error:", err.message);
+    console.log("Sheet error:", err.message);
     res.json([]);
   }
 });
 
 // 📊 PRICES
 app.get("/api/prices", async (req, res) => {
-  const prices = await getPrices();
-  res.json(prices);
+  res.json(await getPrices());
 });
 
-// 🤖 AI EXPLANATION
+// 🤖 AI
 app.get("/api/explain", async (req, res) => {
   const prices = await getPrices();
 
@@ -152,7 +120,7 @@ Return JSON:
     takeaway: "",
     action: "",
     confidence: null,
-    commentary: "AI unavailable"
+    commentary: ""
   };
 
   try {
@@ -170,26 +138,18 @@ Return JSON:
       }
     );
 
-    try {
-      result = JSON.parse(response.data.choices[0].message.content);
-    } catch {
-      console.log("⚠️ AI JSON parse issue");
-    }
+    result = JSON.parse(response.data.choices[0].message.content);
 
-  } catch (err) {
-    console.log("❌ AI error:", err.message);
-  }
+  } catch {}
 
   res.json(result);
 });
 
-// 🧪 ROOT
+// ROOT
 app.get("/", (req, res) => {
   res.send("Backend running");
 });
 
-// 🚀 START SERVER
+// START
 const PORT = process.env.PORT || 3001;
-app.listen(PORT, () => {
-  console.log(`Server running on port ${PORT}`);
-});
+app.listen(PORT, () => console.log("Server running on port " + PORT));
