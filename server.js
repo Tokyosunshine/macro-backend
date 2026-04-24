@@ -7,18 +7,21 @@ app.use(cors());
 
 const OPENAI_API_KEY = process.env.OPENAI_API_KEY;
 
+// 📊 Expanded indicator set
 const symbols = [
   { name: "USD/CHF", symbol: "CHF=X" },
+  { name: "DXY", symbol: "DX-Y.NYB" },
+  { name: "US 10Y", symbol: "^TNX" },
   { name: "Oil", symbol: "CL=F" },
   { name: "Gold", symbol: "GC=F" },
   { name: "Silver", symbol: "SI=F" },
   { name: "SPX Futures", symbol: "ES=F" },
-  { name: "SPY", symbol: "SPY" },
+  { name: "NASDAQ", symbol: "QQQ" },
   { name: "VIX", symbol: "^VIX" },
   { name: "Bitcoin", symbol: "BTC-USD" }
 ];
 
-// 🔥 RELIABLE DATA SOURCE ONLY
+// 🔥 Reliable chart endpoint only
 async function getPrices() {
   const results = [];
 
@@ -35,7 +38,6 @@ async function getPrices() {
       if (!chart) throw new Error("No chart data");
 
       const closes = chart.indicators.quote[0].close;
-
       const valid = closes.filter(x => x !== null);
 
       if (valid.length < 2) throw new Error("Not enough data");
@@ -53,7 +55,7 @@ async function getPrices() {
       });
 
     } catch (err) {
-      console.log("❌ Data error:", s.name, err.message);
+      console.log("❌ Data error:", s.name);
 
       results.push({
         name: s.name,
@@ -64,12 +66,10 @@ async function getPrices() {
     }
   }
 
-  console.log("✅ Prices:", results.map(r => r.price));
-
   return results;
 }
 
-// 📊 API
+// 📊 API: prices
 app.get("/api/prices", async (req, res) => {
   const prices = await getPrices();
   res.json(prices);
