@@ -7,6 +7,7 @@ app.use(cors());
 
 const OPENAI_API_KEY = process.env.OPENAI_API_KEY;
 
+// 📊 Symbols
 const symbols = [
   { name: "USD/CHF", symbol: "CHF=X" },
   { name: "Oil", symbol: "CL=F" },
@@ -18,39 +19,28 @@ const symbols = [
   { name: "Bitcoin", symbol: "BTC-USD" }
 ];
 
-// 📊 Fetch prices
+
+// 📈 Fetch market data (REAL % change)
 async function getPrices() {
   const results = [];
 
   for (const s of symbols) {
     try {
-      const url = `https://query1.finance.yahoo.com/v8/finance/chart/${s.symbol}?range=2d&interval=5m`;
+      const url = `https://query1.finance.yahoo.com/v7/finance/quote?symbols=${s.symbol}`;
 
-      const response = await axios.get(url, {
-        headers: { "User-Agent": "Mozilla/5.0" }
-      });
-
-      const chart = response.data.chart.result[0];
-      const closes = chart.indicators.quote[0].close;
-
-      const valid = closes.filter(x => x !== null).slice(-30);
-
-      const latest = valid[valid.length - 1];
-      const prev = valid[0];
-
-      let pctChange = null;
-      if (latest && prev) {
-        pctChange = ((latest - prev) / prev) * 100;
-      }
+      const response = await axios.get(url);
+      const quote = response.data?.quoteResponse?.result?.[0];
 
       results.push({
         name: s.name,
         symbol: s.symbol,
-        price: latest,
-        pctChange
+        price: quote?.regularMarketPrice ?? null,
+        pctChange: quote?.regularMarketChangePercent ?? null
       });
 
-    } catch {
+    } catch (err) {
+      console.log("Data error:", s.name);
+
       results.push({
         name: s.name,
         symbol: s.symbol,
@@ -63,13 +53,15 @@ async function getPrices() {
   return results;
 }
 
-// 📈 Prices endpoint
+
+// 📊 API: Prices
 app.get("/api/prices", async (req, res) => {
   const prices = await getPrices();
   res.json(prices);
 });
 
-// 🤖 AI endpoint
+
+// 🤖 API: AI Explanation
 app.get("/api/explain", async (req, res) => {
   const prices = await getPrices();
 
@@ -86,8 +78,8 @@ ${summary}
 Tasks:
 1. Identify dominant macro driver
 2. Explain cross-asset relationships
-3. Provide takeaway
-4. Suggest trade
+3. Provide a clear takeaway
+4. Suggest a trade
 5. Assign confidence (0-100)
 
 Return STRICT JSON:
@@ -121,10 +113,12 @@ Return STRICT JSON:
       }
     );
 
+    const text = response.data?.choices?.[0]?.message?.content;
+
     try {
-      result = JSON.parse(response.data.choices[0].message.content);
+      result = JSON.parse(text);
     } catch {
-      console.log("JSON parse error");
+      console.log("JSON parse error (AI output not clean)");
     }
 
   } catch (err) {
@@ -134,9 +128,15 @@ Return STRICT JSON:
   res.json(result);
 });
 
+
+// 🧪 Health check
 app.get("/", (req, res) => {
   res.send("Backend running");
 });
 
+
+// 🚀 Start server
 const PORT = process.env.PORT || 3001;
-app.listen(PORT, () => console.log(`Server running on port ${PORT}`));
+app.listen(PORT, () => {
+  console.log(`Server running on port ${PORT}`);
+});
