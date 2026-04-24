@@ -7,14 +7,14 @@ app.use(cors());
 
 const OPENAI_API_KEY = process.env.OPENAI_API_KEY;
 
-// ✅ INDICATORS (UPDATED)
+// 🔥 INDICATORS
 const symbols = [
   { name: "USD/CHF", symbol: "CHF=X" },
   { name: "Oil", symbol: "CL=F" },
   { name: "Gold", symbol: "GC=F" },
   { name: "Silver", symbol: "SI=F" },
-  { name: "Copper", symbol: "HG=F" },       // NEW
-  { name: "US 10Y", symbol: "^TNX" },       // NEW
+  { name: "Copper", symbol: "HG=F" },
+  { name: "US 10Y", symbol: "^TNX" },
   { name: "SPX Futures", symbol: "ES=F" },
   { name: "SPY", symbol: "SPY" },
   { name: "VIX", symbol: "^VIX" },
@@ -29,10 +29,7 @@ async function getPrices() {
     try {
       const url = `https://query1.finance.yahoo.com/v8/finance/chart/${s.symbol}?range=1d&interval=5m`;
 
-      const response = await axios.get(url, {
-        headers: { "User-Agent": "Mozilla/5.0" }
-      });
-
+      const response = await axios.get(url);
       const chart = response.data.chart.result[0];
       const closes = chart.indicators.quote[0].close;
       const valid = closes.filter(x => x !== null);
@@ -49,11 +46,7 @@ async function getPrices() {
       });
 
     } catch {
-      results.push({
-        name: s.name,
-        price: 0,
-        pctChange: 0
-      });
+      results.push({ name: s.name, price: 0, pctChange: 0 });
     }
   }
 
@@ -86,11 +79,6 @@ app.get("/api/sheet", async (req, res) => {
   } catch {
     res.json([]);
   }
-});
-
-// 📊 PRICES
-app.get("/api/prices", async (req, res) => {
-  res.json(await getPrices());
 });
 
 // 🤖 AI
@@ -133,10 +121,61 @@ Return JSON:
     );
 
     result = JSON.parse(response.data.choices[0].message.content);
-
   } catch {}
 
   res.json(result);
+});
+
+// 🔥 BACKTEST ENGINE
+function runBacktest(prices) {
+  let equity = 100;
+  let peak = 100;
+  let maxDrawdown = 0;
+  let wins = 0;
+  let total = 0;
+
+  for (let i = 1; i < prices.length; i++) {
+    const r = (prices[i] - prices[i - 1]) / prices[i - 1];
+
+    const signal = r > 0 ? 1 : -1;
+    const pnl = signal * r;
+
+    equity *= (1 + pnl);
+
+    if (pnl > 0) wins++;
+    total++;
+
+    if (equity > peak) peak = equity;
+    const dd = (equity - peak) / peak;
+    if (dd < maxDrawdown) maxDrawdown = dd;
+  }
+
+  return {
+    totalReturn: ((equity - 100)).toFixed(2) + "%",
+    hitRate: ((wins / total) * 100).toFixed(1) + "%",
+    maxDrawdown: (maxDrawdown * 100).toFixed(1) + "%"
+  };
+}
+
+// 📊 BACKTEST API
+app.get("/api/backtest", async (req, res) => {
+  try {
+    const url = "https://query1.finance.yahoo.com/v8/finance/chart/SPY?range=6mo&interval=1d";
+
+    const response = await axios.get(url);
+    const closes = response.data.chart.result[0].indicators.quote[0].close;
+    const clean = closes.filter(x => x !== null);
+
+    const result = runBacktest(clean);
+
+    res.json(result);
+  } catch {
+    res.json({ totalReturn: "-", hitRate: "-", maxDrawdown: "-" });
+  }
+});
+
+app.get("/api/prices", async (req, res) => {
+  res.json(await getPrices());
 });
 
 app.get("/", (req, res) => {
