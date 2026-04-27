@@ -7,30 +7,24 @@ app.use(cors());
 
 // 📊 INDICATORS
 const symbols = [
-  { name: "USD/CHF", symbol: "CHF=X" },
-  { name: "Oil", symbol: "CL=F" },
-  { name: "Gold", symbol: "GC=F" },
-  { name: "Silver", symbol: "SI=F" },
-  { name: "Copper", symbol: "HG=F" },
-  { name: "US 10Y", symbol: "^TNX" },
-  { name: "SPX Futures", symbol: "ES=F" },
-  { name: "SPY", symbol: "SPY" },
-  { name: "VIX", symbol: "^VIX" },
-  { name: "Bitcoin", symbol: "BTC-USD" }
+  { name: "USD/CHF", symbol: "CHF=X", type: "fx" },
+  { name: "Oil", symbol: "CL=F", type: "future" },
+  { name: "Gold", symbol: "GC=F", type: "future" },
+  { name: "Silver", symbol: "SI=F", type: "future" },
+  { name: "Copper", symbol: "HG=F", type: "future" },
+  { name: "US 10Y", symbol: "^TNX", type: "rate" },
+  { name: "SPX Futures", symbol: "ES=F", type: "future" },
+  { name: "SPY", symbol: "SPY", type: "equity" },
+  { name: "VIX", symbol: "^VIX", type: "index" },
+  { name: "Bitcoin", symbol: "BTC-USD", type: "crypto" }
 ];
 
-// 🔥 FETCH FROM YAHOO (ROBUST)
-async function fetchYahoo(symbolList) {
-  const url = `https://query2.finance.yahoo.com/v7/finance/quote?symbols=${symbolList}`;
-
+// 🔥 FETCH YAHOO
+async function fetchYahoo(list) {
+  const url = `https://query2.finance.yahoo.com/v7/finance/quote?symbols=${list}`;
   const res = await axios.get(url, {
-    headers: {
-      "User-Agent": "Mozilla/5.0",
-      "Accept": "application/json"
-    },
-    timeout: 7000
+    headers: { "User-Agent": "Mozilla/5.0" }
   });
-
   return res.data.quoteResponse.result;
 }
 
@@ -43,30 +37,37 @@ async function getPrices() {
     return symbols.map(s => {
       const q = data.find(x => x.symbol === s.symbol);
 
-      if (!q) return { name: s.name, price: null, pctChange: null };
+      if (!q) {
+        console.log("Missing symbol:", s.symbol);
+        return { name: s.name, price: null, pctChange: null };
+      }
 
-      const price =
-        q.regularMarketPrice ??
-        q.postMarketPrice ??
-        q.preMarketPrice ??
-        null;
+      let price = q.regularMarketPrice;
+      let pct = q.regularMarketChangePercent;
 
-      const pct =
-        q.regularMarketChangePercent ??
-        q.postMarketChangePercent ??
-        q.preMarketChangePercent ??
-        null;
+      // 🔥 FIX RATE (TNX)
+      if (s.type === "rate" && price) {
+        price = price / 10;
+      }
 
-      return { name: s.name, price, pctChange: pct };
+      // 🔥 FX sometimes missing pct
+      if (s.type === "fx" && pct == null) {
+        pct = 0;
+      }
+
+      return {
+        name: s.name,
+        price,
+        pctChange: pct
+      };
     });
 
   } catch (err) {
-    console.log("Yahoo failed → fallback");
-
-    return symbols.map((s, i) => ({
+    console.log("Yahoo failed");
+    return symbols.map(s => ({
       name: s.name,
-      price: 100 + i,
-      pctChange: (Math.random() - 0.5) * 2
+      price: null,
+      pctChange: null
     }));
   }
 }
@@ -109,44 +110,36 @@ app.get("/api/watchlist", async (req, res) => {
       .slice(9)
       .map(r => r.trim())
       .filter(r => r.length > 0)
-      .map(r => r.replace(/"/g, "").split(",")[0].trim())
-      .filter(s => s.length > 0);
+      .map(r => r.replace(/"/g, "").split(",")[0].trim());
 
     if (symbols.length === 0) return res.json([]);
 
+    console.log("Watchlist symbols:", symbols);
+
     const data = await fetchYahoo(symbols.join(","));
 
-    const results = symbols.map(sym => {
-      const q = data.find(x =>
-        x.symbol.toUpperCase() === sym.toUpperCase()
-      );
+    const results = [];
 
-      if (!q) return null;
+    for (const sym of symbols) {
+      const q = data.find(x => x.symbol === sym);
 
-      const price =
-        q.regularMarketPrice ??
-        q.postMarketPrice ??
-        q.preMarketPrice ??
-        null;
+      if (!q) {
+        console.log("Not found:", sym);
+        continue;
+      }
 
-      const pct =
-        q.regularMarketChangePercent ??
-        q.postMarketChangePercent ??
-        q.preMarketChangePercent ??
-        null;
-
-      return {
+      results.push({
         symbol: sym,
-        price,
-        pctChange: pct,
+        price: q.regularMarketPrice,
+        pctChange: q.regularMarketChangePercent,
         afterHours: q.postMarketChangePercent ?? null
-      };
-    }).filter(x => x !== null);
+      });
+    }
 
     res.json(results);
 
   } catch (err) {
-    console.log("WATCHLIST ERROR:", err.message);
+    console.log("Watchlist error:", err.message);
     res.json([]);
   }
 });
