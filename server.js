@@ -19,7 +19,7 @@ const symbols = [
   { name: "Bitcoin", symbol: "BTC-USD" }
 ];
 
-// 🔥 FETCH ALL INDICATORS (STABLE)
+// 🔥 FETCH PRICES (STABLE)
 async function getPrices() {
   try {
     const symbolList = symbols.map(s => s.symbol).join(",");
@@ -27,31 +27,25 @@ async function getPrices() {
     const url = `https://query1.finance.yahoo.com/v7/finance/quote?symbols=${symbolList}`;
 
     const response = await axios.get(url, {
-      headers: {
-        "User-Agent": "Mozilla/5.0",
-        "Accept": "application/json"
-      }
+      headers: { "User-Agent": "Mozilla/5.0" }
     });
 
-    const quoteData = response.data.quoteResponse.result;
+    const data = response.data.quoteResponse.result;
 
     return symbols.map(s => {
-      const q = quoteData.find(x => x.symbol === s.symbol);
+      const q = data.find(x => x.symbol === s.symbol);
 
-      if (!q) {
-        return { name: s.name, price: null, pctChange: null };
-      }
-
-      return {
-        name: s.name,
-        price: q.regularMarketPrice,
-        pctChange: q.regularMarketChangePercent
-      };
+      return q
+        ? {
+            name: s.name,
+            price: q.regularMarketPrice,
+            pctChange: q.regularMarketChangePercent
+          }
+        : { name: s.name, price: null, pctChange: null };
     });
 
   } catch (err) {
-    console.error("PRICE FETCH ERROR:", err.message);
-
+    console.error("PRICE ERROR:", err.message);
     return symbols.map(s => ({
       name: s.name,
       price: null,
@@ -75,8 +69,8 @@ app.get("/api/sheet", async (req, res) => {
       .map(r => {
         const parts = r.split(",");
         return {
-          key: parts[0].replace(/"/g, "").trim(),
-          value: parts.slice(1).join(",").replace(/"/g, "").trim()
+          key: parts[0],
+          value: parts.slice(1).join(",")
         };
       });
 
@@ -99,14 +93,11 @@ app.get("/api/watchlist", async (req, res) => {
       .slice(9)
       .map(r => r.trim())
       .filter(r => r.length > 0)
-      .map(r => r.replace(/"/g, "").split(",")[0])
-      .filter(s => s.length > 0);
+      .map(r => r.split(",")[0]);
 
     if (symbols.length === 0) return res.json([]);
 
-    const symbolList = symbols.join(",");
-
-    const yahooURL = `https://query1.finance.yahoo.com/v7/finance/quote?symbols=${symbolList}`;
+    const yahooURL = `https://query1.finance.yahoo.com/v7/finance/quote?symbols=${symbols.join(",")}`;
 
     const yahooRes = await axios.get(yahooURL, {
       headers: { "User-Agent": "Mozilla/5.0" }
@@ -116,14 +107,14 @@ app.get("/api/watchlist", async (req, res) => {
 
     const results = symbols.map(sym => {
       const q = data.find(x => x.symbol === sym);
-      if (!q) return null;
-
-      return {
-        symbol: sym,
-        price: q.regularMarketPrice,
-        pctChange: q.regularMarketChangePercent,
-        afterHours: q.postMarketChangePercent ?? null
-      };
+      return q
+        ? {
+            symbol: sym,
+            price: q.regularMarketPrice,
+            pctChange: q.regularMarketChangePercent,
+            afterHours: q.postMarketChangePercent ?? null
+          }
+        : null;
     }).filter(x => x !== null);
 
     res.json(results);
@@ -134,8 +125,8 @@ app.get("/api/watchlist", async (req, res) => {
   }
 });
 
-// 🤖 AI (SAFE FALLBACK)
-app.get("/api/explain", async (req, res) => {
+// 🤖 AI (SAFE)
+app.get("/api/explain", (req, res) => {
   res.json({
     takeaway: "Markets updating",
     action: "Hold",
@@ -145,28 +136,11 @@ app.get("/api/explain", async (req, res) => {
 
 // 📊 BACKTEST
 app.get("/api/backtest", async (req, res) => {
-  try {
-    const url = "https://query1.finance.yahoo.com/v8/finance/chart/SPY?range=6mo&interval=1d";
-    const response = await axios.get(url);
-
-    const closes = response.data.chart.result[0].indicators.quote[0].close;
-    const clean = closes.filter(x => x !== null);
-
-    let equity = 100;
-
-    for (let i = 1; i < clean.length; i++) {
-      const r = (clean[i] - clean[i - 1]) / clean[i - 1];
-      const pnl = (r > 0 ? 1 : -1) * r;
-      equity *= (1 + pnl);
-    }
-
-    res.json({
-      totalReturn: (equity - 100).toFixed(2) + "%"
-    });
-
-  } catch {
-    res.json({});
-  }
+  res.json({
+    totalReturn: "N/A",
+    hitRate: "N/A",
+    maxDrawdown: "N/A"
+  });
 });
 
 // 📊 PRICES
@@ -174,13 +148,9 @@ app.get("/api/prices", async (req, res) => {
   res.json(await getPrices());
 });
 
-// ✅ ROOT ROUTE
+// ✅ ROOT
 app.get("/", (req, res) => {
   res.send("Backend running");
 });
 
-// 🚀 START SERVER
-const PORT = process.env.PORT || 3001;
-app.listen(PORT, () => {
-  console.log("Server running on port " + PORT);
-});
+app.listen(process.env.PORT || 3001);
