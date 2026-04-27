@@ -5,9 +5,7 @@ const cors = require("cors");
 const app = express();
 app.use(cors());
 
-const OPENAI_API_KEY = process.env.OPENAI_API_KEY;
-
-// 📊 CORE INDICATORS
+// 📊 INDICATORS
 const symbols = [
   { name: "USD/CHF", symbol: "CHF=X" },
   { name: "Oil", symbol: "CL=F" },
@@ -21,55 +19,53 @@ const symbols = [
   { name: "Bitcoin", symbol: "BTC-USD" }
 ];
 
-// 🔥 SAFE INDICATOR FETCH
+// 🔥 FETCH ALL INDICATORS (STABLE)
 async function getPrices() {
-  const results = [];
+  try {
+    const symbolList = symbols.map(s => s.symbol).join(",");
 
-  for (const s of symbols) {
-    try {
-      const url = `https://query1.finance.yahoo.com/v8/finance/chart/${s.symbol}?range=1d&interval=5m`;
-      const response = await axios.get(url);
+    const url = `https://query1.finance.yahoo.com/v7/finance/quote?symbols=${symbolList}`;
 
-      const result = response.data.chart?.result?.[0];
-      if (!result) throw new Error("No chart result");
+    const response = await axios.get(url, {
+      headers: {
+        "User-Agent": "Mozilla/5.0",
+        "Accept": "application/json"
+      }
+    });
 
-      const closes = result.indicators?.quote?.[0]?.close || [];
-      const valid = closes.filter(x => x !== null);
+    const quoteData = response.data.quoteResponse.result;
 
-      if (valid.length === 0) throw new Error("No valid prices");
+    return symbols.map(s => {
+      const q = quoteData.find(x => x.symbol === s.symbol);
 
-      const latest = valid[valid.length - 1];
-      const prev = result.meta?.previousClose;
+      if (!q) {
+        return { name: s.name, price: null, pctChange: null };
+      }
 
-      const pctChange = prev
-        ? ((latest - prev) / prev) * 100
-        : 0;
-
-      results.push({
+      return {
         name: s.name,
-        price: latest,
-        pctChange
-      });
+        price: q.regularMarketPrice,
+        pctChange: q.regularMarketChangePercent
+      };
+    });
 
-    } catch (err) {
-      console.log("Indicator failed:", s.symbol);
-      results.push({
-        name: s.name,
-        price: null,
-        pctChange: null
-      });
-    }
+  } catch (err) {
+    console.error("PRICE FETCH ERROR:", err.message);
+
+    return symbols.map(s => ({
+      name: s.name,
+      price: null,
+      pctChange: null
+    }));
   }
-
-  return results;
 }
 
 // 🧾 PORTFOLIO (ROWS 1–9)
 app.get("/api/sheet", async (req, res) => {
   try {
     const url = "https://docs.google.com/spreadsheets/d/e/2PACX-1vQs38DKrijbxXURWYSmVoP9RN2mNSvphDI6yCR5aBXSFmALsuUm4MNK54f3MphaBAnHETqRtzpY5pt6/pub?gid=1778497186&single=true&output=csv";
-    const response = await axios.get(url);
 
+    const response = await axios.get(url);
     const rows = response.data.split("\n");
 
     const parsed = rows
@@ -86,8 +82,7 @@ app.get("/api/sheet", async (req, res) => {
 
     res.json(parsed);
 
-  } catch (err) {
-    console.error("Sheet error:", err.message);
+  } catch {
     res.json([]);
   }
 });
@@ -96,8 +91,8 @@ app.get("/api/sheet", async (req, res) => {
 app.get("/api/watchlist", async (req, res) => {
   try {
     const url = "https://docs.google.com/spreadsheets/d/e/2PACX-1vQs38DKrijbxXURWYSmVoP9RN2mNSvphDI6yCR5aBXSFmALsuUm4MNK54f3MphaBAnHETqRtzpY5pt6/pub?gid=1778497186&single=true&output=csv";
-    const response = await axios.get(url);
 
+    const response = await axios.get(url);
     const rows = response.data.split("\n");
 
     const symbols = rows
@@ -107,59 +102,44 @@ app.get("/api/watchlist", async (req, res) => {
       .map(r => r.replace(/"/g, "").split(",")[0])
       .filter(s => s.length > 0);
 
-    const results = [];
+    if (symbols.length === 0) return res.json([]);
 
-    for (const symbol of symbols) {
-      try {
-        const url = `https://query1.finance.yahoo.com/v8/finance/chart/${symbol}?range=1d&interval=5m`;
-        const response = await axios.get(url);
+    const symbolList = symbols.join(",");
 
-        const result = response.data.chart?.result?.[0];
-        if (!result) continue;
+    const yahooURL = `https://query1.finance.yahoo.com/v7/finance/quote?symbols=${symbolList}`;
 
-        const closes = result.indicators?.quote?.[0]?.close || [];
-        const valid = closes.filter(x => x !== null);
+    const yahooRes = await axios.get(yahooURL, {
+      headers: { "User-Agent": "Mozilla/5.0" }
+    });
 
-        if (valid.length === 0) continue;
+    const data = yahooRes.data.quoteResponse.result;
 
-        const last = valid[valid.length - 1];
-        const prev = result.meta?.previousClose;
+    const results = symbols.map(sym => {
+      const q = data.find(x => x.symbol === sym);
+      if (!q) return null;
 
-        const pct = prev
-          ? ((last - prev) / prev) * 100
-          : 0;
-
-        const post = result.meta?.postMarketPrice;
-        const postPct = post && last
-          ? ((post - last) / last) * 100
-          : null;
-
-        results.push({
-          symbol,
-          price: last,
-          pctChange: pct,
-          afterHours: postPct
-        });
-
-      } catch {
-        console.log("Watchlist symbol failed:", symbol);
-      }
-    }
+      return {
+        symbol: sym,
+        price: q.regularMarketPrice,
+        pctChange: q.regularMarketChangePercent,
+        afterHours: q.postMarketChangePercent ?? null
+      };
+    }).filter(x => x !== null);
 
     res.json(results);
 
   } catch (err) {
-    console.error("Watchlist error:", err.message);
+    console.error("WATCHLIST ERROR:", err.message);
     res.json([]);
   }
 });
 
-// 🤖 AI (safe fallback)
+// 🤖 AI (SAFE FALLBACK)
 app.get("/api/explain", async (req, res) => {
   res.json({
-    takeaway: "Markets mixed",
+    takeaway: "Markets updating",
     action: "Hold",
-    commentary: "AI temporarily disabled or awaiting API key."
+    commentary: "AI temporarily simplified for stability."
   });
 });
 
@@ -180,9 +160,11 @@ app.get("/api/backtest", async (req, res) => {
       equity *= (1 + pnl);
     }
 
-    res.json({ totalReturn: (equity - 100).toFixed(2) + "%" });
+    res.json({
+      totalReturn: (equity - 100).toFixed(2) + "%"
+    });
 
-  } catch (err) {
+  } catch {
     res.json({});
   }
 });
@@ -192,11 +174,13 @@ app.get("/api/prices", async (req, res) => {
   res.json(await getPrices());
 });
 
-// ✅ ROOT ROUTE (CRITICAL FIX)
+// ✅ ROOT ROUTE
 app.get("/", (req, res) => {
   res.send("Backend running");
 });
 
-// START
+// 🚀 START SERVER
 const PORT = process.env.PORT || 3001;
-app.listen(PORT, () => console.log("Server running on port " + PORT));
+app.listen(PORT, () => {
+  console.log("Server running on port " + PORT);
+});
