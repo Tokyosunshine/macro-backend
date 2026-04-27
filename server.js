@@ -5,7 +5,7 @@ const cors = require("cors");
 const app = express();
 app.use(cors());
 
-console.log("🚀 BACKEND VERSION: V6 (STABLE API)");
+console.log("🚀 BACKEND VERSION: V7 CLEAN");
 
 const API_KEY = process.env.TD_API_KEY;
 
@@ -21,23 +21,33 @@ const INDICATORS = [
   { name: "Bitcoin", symbol: "BTC/USD" }
 ];
 
-// 🔥 INDICATORS
+// 🔥 CORRECT FETCH FUNCTION
+async function fetchPrices(symbols) {
+  const url = `https://api.twelvedata.com/quote?symbol=${symbols.join(",")}&apikey=${API_KEY}`;
+  const r = await axios.get(url);
+
+  return r.data;
+}
+
+// 📊 INDICATORS
 app.get("/api/prices", async (req, res) => {
   try {
-    const list = INDICATORS.map(s => s.symbol).join(",");
+    const data = await fetchPrices(INDICATORS.map(s => s.symbol));
 
-    const url = `https://api.twelvedata.com/price?symbol=${list}&apikey=${API_KEY}`;
-    const r = await axios.get(url);
+    const result = INDICATORS.map(s => {
+      const q = data[s.symbol];
 
-    const result = INDICATORS.map(s => ({
-      name: s.name,
-      price: parseFloat(r.data[s.symbol]?.price || 0),
-      pctChange: 0
-    }));
+      return {
+        name: s.name,
+        price: q?.close ? parseFloat(q.close) : null,
+        pctChange: q?.percent_change ? parseFloat(q.percent_change) : null
+      };
+    });
 
     res.json(result);
 
-  } catch {
+  } catch (err) {
+    console.log("Indicator error:", err.message);
     res.json([]);
   }
 });
@@ -45,25 +55,30 @@ app.get("/api/prices", async (req, res) => {
 // 📊 WATCHLIST
 app.get("/api/watchlist", async (req, res) => {
   try {
-    const symbols = ["AAPL", "MSFT", "GOOG"]; // temp test
+    // 🔥 replace with your real sheet later
+    const symbols = ["AAPL", "MSFT", "GOOG"];
 
-    const url = `https://api.twelvedata.com/price?symbol=${symbols.join(",")}&apikey=${API_KEY}`;
-    const r = await axios.get(url);
+    const data = await fetchPrices(symbols);
 
-    const result = symbols.map(sym => ({
-      symbol: sym,
-      price: parseFloat(r.data[sym]?.price || 0),
-      pctChange: 0
-    }));
+    const result = symbols.map(sym => {
+      const q = data[sym];
+
+      return {
+        symbol: sym,
+        price: q?.close ? parseFloat(q.close) : null,
+        pctChange: q?.percent_change ? parseFloat(q.percent_change) : null
+      };
+    });
 
     res.json(result);
 
-  } catch {
+  } catch (err) {
+    console.log("Watchlist error:", err.message);
     res.json([]);
   }
 });
 
-// 🧾 PORTFOLIO (unchanged)
+// 🧾 PORTFOLIO (keep simple for now)
 app.get("/api/sheet", (req, res) => {
   res.json([
     { key: "Cash", value: "$100,000" },
@@ -74,12 +89,12 @@ app.get("/api/sheet", (req, res) => {
 // 🤖 AI
 app.get("/api/explain", (req, res) => {
   res.json({
-    takeaway: "Stable",
+    takeaway: "Stable data feed",
     action: "Monitor",
-    commentary: "Reliable data source active"
+    commentary: "V7 correct parsing"
   });
 });
 
-app.get("/", (req, res) => res.send("Backend running V6"));
+app.get("/", (req, res) => res.send("Backend running V7"));
 
 app.listen(process.env.PORT || 3001);
