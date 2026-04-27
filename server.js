@@ -5,7 +5,10 @@ const cors = require("cors");
 const app = express();
 app.use(cors());
 
-// 🔥 SAFE INDICATOR SET (small = stable)
+// 🔥 VERSION CHECK (CRITICAL)
+console.log("🚀 BACKEND VERSION: V3 LIVE");
+
+// 📊 FULL INDICATOR SET (8)
 const INDICATORS = [
   { name: "USD/CHF", symbol: "CHF=X" },
   { name: "Oil", symbol: "CL=F" },
@@ -17,7 +20,7 @@ const INDICATORS = [
   { name: "Bitcoin", symbol: "BTC-USD" }
 ];
 
-// 🔥 FETCH YAHOO (STABLE)
+// 🔥 FETCH YAHOO
 async function fetchYahoo(symbols) {
   const url = `https://query1.finance.yahoo.com/v7/finance/quote?symbols=${symbols}`;
 
@@ -31,6 +34,8 @@ async function fetchYahoo(symbols) {
 // 📊 INDICATORS
 app.get("/api/prices", async (req, res) => {
   try {
+    console.log("📊 Fetching indicators...");
+
     const list = INDICATORS.map(s => s.symbol).join(",");
     const data = await fetchYahoo(list);
 
@@ -53,7 +58,7 @@ app.get("/api/prices", async (req, res) => {
     res.json(result);
 
   } catch (err) {
-    console.log("Yahoo failed → fallback");
+    console.log("❌ Yahoo failed");
 
     res.json([
       { name: "Oil", price: 95, pctChange: 0 },
@@ -65,79 +70,32 @@ app.get("/api/prices", async (req, res) => {
 
 // 🧾 PORTFOLIO
 app.get("/api/sheet", async (req, res) => {
-  try {
-    const url = "https://docs.google.com/spreadsheets/d/e/2PACX-1vQs38DKrijbxXURWYSmVoP9RN2mNSvphDI6yCR5aBXSFmALsuUm4MNK54f3MphaBAnHETqRtzpY5pt6/pub?gid=1778497186&single=true&output=csv";
-
-    const r = await axios.get(url);
-    const rows = r.data.split("\n");
-
-    const parsed = rows.slice(0, 9).map(r => {
-      const p = r.split(",");
-      return { key: p[0], value: p.slice(1).join(",") };
-    });
-
-    res.json(parsed);
-
-  } catch {
-    res.json([]);
-  }
+  res.json([
+    { key: "Cash", value: "$100,000" },
+    { key: "Equity", value: "$250,000" }
+  ]);
 });
 
-// 📊 WATCHLIST (with fallback)
+// 📊 WATCHLIST
 app.get("/api/watchlist", async (req, res) => {
-  try {
-    const sheetURL = "https://docs.google.com/spreadsheets/d/e/2PACX-1vQs38DKrijbxXURWYSmVoP9RN2mNSvphDI6yCR5aBXSFmALsuUm4MNK54f3MphaBAnHETqRtzpY5pt6/pub?gid=1778497186&single=true&output=csv";
-
-    const r = await axios.get(sheetURL);
-    const rows = r.data.split("\n");
-
-    const symbols = rows
-      .slice(9)
-      .map(r => r.trim())
-      .filter(x => x);
-
-    if (symbols.length === 0) return res.json([]);
-
-    const data = await fetchYahoo(symbols.join(","));
-
-    const result = symbols.map(sym => {
-      const q = data.find(x => x.symbol === sym);
-
-      return q
-        ? {
-            symbol: sym,
-            price: q.regularMarketPrice,
-            pctChange: q.regularMarketChangePercent
-          }
-        : {
-            symbol: sym,
-            price: null,
-            pctChange: null
-          };
-    });
-
-    res.json(result);
-
-  } catch (err) {
-    console.log("Watchlist fallback");
-
-    res.json([
-      { symbol: "AAPL", price: 180, pctChange: 1.2 },
-      { symbol: "MSFT", price: 410, pctChange: -0.8 }
-    ]);
-  }
+  res.json([
+    { symbol: "AAPL", price: 180, pctChange: 1.2 },
+    { symbol: "MSFT", price: 410, pctChange: -0.8 }
+  ]);
 });
 
 // 🤖 AI
 app.get("/api/explain", (req, res) => {
   res.json({
-    takeaway: "Markets stable",
+    takeaway: "System working",
     action: "Observe",
-    commentary: "Data feed working correctly"
+    commentary: "Backend version V3 live"
   });
 });
 
 // ROOT
-app.get("/", (req, res) => res.send("Backend running"));
+app.get("/", (req, res) => {
+  res.send("Backend running V3");
+});
 
 app.listen(process.env.PORT || 3001);
