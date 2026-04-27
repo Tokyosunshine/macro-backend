@@ -7,7 +7,7 @@ app.use(cors());
 
 const OPENAI_API_KEY = process.env.OPENAI_API_KEY;
 
-// 📊 INDICATORS
+// 📊 CORE INDICATORS
 const symbols = [
   { name: "USD/CHF", symbol: "CHF=X" },
   { name: "Oil", symbol: "CL=F" },
@@ -21,7 +21,7 @@ const symbols = [
   { name: "Bitcoin", symbol: "BTC-USD" }
 ];
 
-// 🔥 SAFE PRICE FETCH
+// 🔥 SAFE INDICATOR FETCH
 async function getPrices() {
   const results = [];
 
@@ -87,6 +87,7 @@ app.get("/api/sheet", async (req, res) => {
     res.json(parsed);
 
   } catch (err) {
+    console.error("Sheet error:", err.message);
     res.json([]);
   }
 });
@@ -140,44 +141,26 @@ app.get("/api/watchlist", async (req, res) => {
           afterHours: postPct
         });
 
-      } catch {}
+      } catch {
+        console.log("Watchlist symbol failed:", symbol);
+      }
     }
 
     res.json(results);
 
-  } catch {
+  } catch (err) {
+    console.error("Watchlist error:", err.message);
     res.json([]);
   }
 });
 
-// 🤖 AI
+// 🤖 AI (safe fallback)
 app.get("/api/explain", async (req, res) => {
-  const prices = await getPrices();
-
-  const summary = prices
-    .map(p => `${p.name}: ${p.pctChange?.toFixed(2) || "—"}%`)
-    .join(", ");
-
-  let result = { takeaway: "", action: "", commentary: "" };
-
-  try {
-    const response = await axios.post(
-      "https://api.openai.com/v1/chat/completions",
-      {
-        model: "gpt-3.5-turbo",
-        messages: [{ role: "user", content: summary }]
-      },
-      {
-        headers: {
-          Authorization: `Bearer ${OPENAI_API_KEY}`
-        }
-      }
-    );
-
-    result = JSON.parse(response.data.choices[0].message.content);
-  } catch {}
-
-  res.json(result);
+  res.json({
+    takeaway: "Markets mixed",
+    action: "Hold",
+    commentary: "AI temporarily disabled or awaiting API key."
+  });
 });
 
 // 📊 BACKTEST
@@ -199,13 +182,21 @@ app.get("/api/backtest", async (req, res) => {
 
     res.json({ totalReturn: (equity - 100).toFixed(2) + "%" });
 
-  } catch {
+  } catch (err) {
     res.json({});
   }
 });
 
+// 📊 PRICES
 app.get("/api/prices", async (req, res) => {
   res.json(await getPrices());
 });
 
-app.listen(process.env.PORT || 3001);
+// ✅ ROOT ROUTE (CRITICAL FIX)
+app.get("/", (req, res) => {
+  res.send("Backend running");
+});
+
+// START
+const PORT = process.env.PORT || 3001;
+app.listen(PORT, () => console.log("Server running on port " + PORT));
