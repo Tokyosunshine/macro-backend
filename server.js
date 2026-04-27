@@ -5,72 +5,43 @@ const cors = require("cors");
 const app = express();
 app.use(cors());
 
-// 📊 INDICATORS
+const API_KEY = process.env.TD_API_KEY;
+
+// 📊 INDICATORS (Twelve Data symbols)
 const symbols = [
-  { name: "USD/CHF", symbol: "CHF=X", type: "fx" },
-  { name: "Oil", symbol: "CL=F", type: "future" },
-  { name: "Gold", symbol: "GC=F", type: "future" },
-  { name: "Silver", symbol: "SI=F", type: "future" },
-  { name: "Copper", symbol: "HG=F", type: "future" },
-  { name: "US 10Y", symbol: "^TNX", type: "rate" },
-  { name: "SPX Futures", symbol: "ES=F", type: "future" },
-  { name: "SPY", symbol: "SPY", type: "equity" },
-  { name: "VIX", symbol: "^VIX", type: "index" },
-  { name: "Bitcoin", symbol: "BTC-USD", type: "crypto" }
+  { name: "USD/CHF", symbol: "USD/CHF" },
+  { name: "Oil", symbol: "WTI" },
+  { name: "Gold", symbol: "XAU/USD" },
+  { name: "Silver", symbol: "XAG/USD" },
+  { name: "Copper", symbol: "HG" },
+  { name: "US 10Y", symbol: "US10Y" },
+  { name: "SPY", symbol: "SPY" },
+  { name: "VIX", symbol: "VIX" },
+  { name: "Bitcoin", symbol: "BTC/USD" }
 ];
 
-// 🔥 FETCH YAHOO
-async function fetchYahoo(list) {
-  const url = `https://query2.finance.yahoo.com/v7/finance/quote?symbols=${list}`;
-  const res = await axios.get(url, {
-    headers: { "User-Agent": "Mozilla/5.0" }
-  });
-  return res.data.quoteResponse.result;
-}
-
-// 🔥 INDICATORS
-async function getPrices() {
+// 🔥 FETCH INDICATORS
+app.get("/api/prices", async (req, res) => {
   try {
     const list = symbols.map(s => s.symbol).join(",");
-    const data = await fetchYahoo(list);
 
-    return symbols.map(s => {
-      const q = data.find(x => x.symbol === s.symbol);
+    const url = `https://api.twelvedata.com/price?symbol=${list}&apikey=${API_KEY}`;
 
-      if (!q) {
-        console.log("Missing symbol:", s.symbol);
-        return { name: s.name, price: null, pctChange: null };
-      }
+    const r = await axios.get(url);
 
-      let price = q.regularMarketPrice;
-      let pct = q.regularMarketChangePercent;
+    const results = symbols.map(s => ({
+      name: s.name,
+      price: parseFloat(r.data[s.symbol]?.price || 0),
+      pctChange: 0 // free tier limitation
+    }));
 
-      // 🔥 FIX RATE (TNX)
-      if (s.type === "rate" && price) {
-        price = price / 10;
-      }
-
-      // 🔥 FX sometimes missing pct
-      if (s.type === "fx" && pct == null) {
-        pct = 0;
-      }
-
-      return {
-        name: s.name,
-        price,
-        pctChange: pct
-      };
-    });
+    res.json(results);
 
   } catch (err) {
-    console.log("Yahoo failed");
-    return symbols.map(s => ({
-      name: s.name,
-      price: null,
-      pctChange: null
-    }));
+    console.log(err.message);
+    res.json([]);
   }
-}
+});
 
 // 🧾 PORTFOLIO
 app.get("/api/sheet", async (req, res) => {
@@ -93,6 +64,7 @@ app.get("/api/sheet", async (req, res) => {
       });
 
     res.json(parsed);
+
   } catch {
     res.json([]);
   }
@@ -109,37 +81,27 @@ app.get("/api/watchlist", async (req, res) => {
     const symbols = rows
       .slice(9)
       .map(r => r.trim())
-      .filter(r => r.length > 0)
-      .map(r => r.replace(/"/g, "").split(",")[0].trim());
+      .filter(r => r.length > 0);
 
     if (symbols.length === 0) return res.json([]);
 
-    console.log("Watchlist symbols:", symbols);
+    const list = symbols.join(",");
 
-    const data = await fetchYahoo(symbols.join(","));
+    const url = `https://api.twelvedata.com/price?symbol=${list}&apikey=${API_KEY}`;
+    const resp = await axios.get(url);
 
-    const results = [];
+    const data = resp.data;
 
-    for (const sym of symbols) {
-      const q = data.find(x => x.symbol === sym);
-
-      if (!q) {
-        console.log("Not found:", sym);
-        continue;
-      }
-
-      results.push({
-        symbol: sym,
-        price: q.regularMarketPrice,
-        pctChange: q.regularMarketChangePercent,
-        afterHours: q.postMarketChangePercent ?? null
-      });
-    }
+    const results = symbols.map(sym => ({
+      symbol: sym,
+      price: parseFloat(data[sym]?.price || 0),
+      pctChange: 0
+    }));
 
     res.json(results);
 
   } catch (err) {
-    console.log("Watchlist error:", err.message);
+    console.log(err.message);
     res.json([]);
   }
 });
@@ -147,15 +109,10 @@ app.get("/api/watchlist", async (req, res) => {
 // 🤖 AI
 app.get("/api/explain", (req, res) => {
   res.json({
-    takeaway: "Markets active",
+    takeaway: "Stable",
     action: "Monitor",
-    commentary: "System stable"
+    commentary: "Reliable data feed active"
   });
-});
-
-// 📊 PRICES
-app.get("/api/prices", async (req, res) => {
-  res.json(await getPrices());
 });
 
 // ROOT
