@@ -7,9 +7,14 @@ app.use(cors());
 
 // 🔥 SAFE INDICATOR SET (small = stable)
 const INDICATORS = [
+  { name: "USD/CHF", symbol: "CHF=X" },
   { name: "Oil", symbol: "CL=F" },
   { name: "Gold", symbol: "GC=F" },
-  { name: "SPY", symbol: "SPY" }
+  { name: "Silver", symbol: "SI=F" },
+  { name: "Copper", symbol: "HG=F" },
+  { name: "SPY", symbol: "SPY" },
+  { name: "VIX", symbol: "^VIX" },
+  { name: "Bitcoin", symbol: "BTC-USD" }
 ];
 
 // 🔥 FETCH YAHOO (STABLE)
