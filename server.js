@@ -7,7 +7,7 @@ app.use(cors());
 
 const OPENAI_API_KEY = process.env.OPENAI_API_KEY;
 
-// 📊 INDICATORS
+// 📊 CORE INDICATORS
 const symbols = [
   { name: "USD/CHF", symbol: "CHF=X" },
   { name: "Oil", symbol: "CL=F" },
@@ -21,7 +21,7 @@ const symbols = [
   { name: "Bitcoin", symbol: "BTC-USD" }
 ];
 
-// 🔥 GET PRICES (YAHOO-CORRECT %)
+// 🔥 FETCH INDICATORS (YAHOO-CORRECT % CHANGE)
 async function getPrices() {
   const results = [];
 
@@ -37,9 +37,7 @@ async function getPrices() {
       const latest = valid[valid.length - 1];
       const prev = chart.meta.previousClose;
 
-      const pctChange = prev
-        ? ((latest - prev) / prev) * 100
-        : 0;
+      const pctChange = prev ? ((latest - prev) / prev) * 100 : 0;
 
       results.push({
         name: s.name,
@@ -55,7 +53,7 @@ async function getPrices() {
   return results;
 }
 
-// 🧾 GOOGLE SHEET
+// 🧾 PORTFOLIO (ROWS 1–9 ONLY)
 app.get("/api/sheet", async (req, res) => {
   try {
     const url = "https://docs.google.com/spreadsheets/d/e/2PACX-1vQs38DKrijbxXURWYSmVoP9RN2mNSvphDI6yCR5aBXSFmALsuUm4MNK54f3MphaBAnHETqRtzpY5pt6/pub?gid=1778497186&single=true&output=csv";
@@ -64,6 +62,7 @@ app.get("/api/sheet", async (req, res) => {
     const rows = response.data.split("\n");
 
     const parsed = rows
+      .slice(0, 9)
       .map(r => r.trim())
       .filter(r => r.includes(","))
       .map(r => {
@@ -81,7 +80,7 @@ app.get("/api/sheet", async (req, res) => {
   }
 });
 
-// 🔥 WATCHLIST
+// 📊 WATCHLIST (ROWS 10+)
 app.get("/api/watchlist", async (req, res) => {
   try {
     const url = "https://docs.google.com/spreadsheets/d/e/2PACX-1vQs38DKrijbxXURWYSmVoP9RN2mNSvphDI6yCR5aBXSFmALsuUm4MNK54f3MphaBAnHETqRtzpY5pt6/pub?gid=1778497186&single=true&output=csv";
@@ -89,14 +88,14 @@ app.get("/api/watchlist", async (req, res) => {
 
     const rows = response.data.split("\n");
 
-    const watchlist = rows
+    const symbols = rows
       .slice(9)
       .map(r => r.trim())
       .filter(r => r.length > 0 && !r.includes(","));
 
     const results = [];
 
-    for (const symbol of watchlist) {
+    for (const symbol of symbols) {
       try {
         const url = `https://query1.finance.yahoo.com/v8/finance/chart/${symbol}?range=1d&interval=5m`;
         const response = await axios.get(url);
@@ -108,14 +107,10 @@ app.get("/api/watchlist", async (req, res) => {
         const last = valid[valid.length - 1];
         const prev = chart.meta.previousClose;
 
-        const pct = prev
-          ? ((last - prev) / prev) * 100
-          : 0;
+        const pct = prev ? ((last - prev) / prev) * 100 : 0;
 
         const post = chart.meta.postMarketPrice;
-        const postPct = post
-          ? ((post - last) / last) * 100
-          : null;
+        const postPct = post && last ? ((post - last) / last) * 100 : null;
 
         results.push({
           symbol,
@@ -134,13 +129,11 @@ app.get("/api/watchlist", async (req, res) => {
   }
 });
 
-// 🤖 AI
+// 🤖 AI COMMENTARY
 app.get("/api/explain", async (req, res) => {
   const prices = await getPrices();
 
-  const summary = prices
-    .map(p => `${p.name}: ${p.pctChange.toFixed(2)}%`)
-    .join(", ");
+  const summary = prices.map(p => `${p.name}: ${p.pctChange.toFixed(2)}%`).join(", ");
 
   const prompt = `
 You are a macro strategist.
@@ -189,7 +182,6 @@ function runBacktest(prices) {
 
   for (let i = 1; i < prices.length; i++) {
     const r = (prices[i] - prices[i - 1]) / prices[i - 1];
-
     const signal = r > 0 ? 1 : -1;
     const pnl = signal * r;
 
@@ -219,12 +211,12 @@ app.get("/api/backtest", async (req, res) => {
     const clean = closes.filter(x => x !== null);
 
     res.json(runBacktest(clean));
-
   } catch {
-    res.json({ totalReturn: "-", hitRate: "-", maxDrawdown: "-" });
+    res.json({});
   }
 });
 
+// 📊 PRICES
 app.get("/api/prices", async (req, res) => {
   res.json(await getPrices());
 });
