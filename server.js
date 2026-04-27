@@ -5,7 +5,7 @@ const cors = require("cors");
 const app = express();
 app.use(cors());
 
-console.log("🚀 BACKEND VERSION: V4 LIVE");
+console.log("🚀 BACKEND VERSION: V5 LIVE");
 
 // 📊 INDICATORS
 const INDICATORS = [
@@ -19,43 +19,57 @@ const INDICATORS = [
   { name: "Bitcoin", symbol: "BTC-USD" }
 ];
 
-// 🔥 YAHOO FETCH
-async function fetchYahoo(symbols) {
-  const url = `https://query1.finance.yahoo.com/v7/finance/quote?symbols=${symbols}`;
-
-  const res = await axios.get(url, {
-    headers: { "User-Agent": "Mozilla/5.0" }
-  });
-
-  return res.data.quoteResponse.result;
-}
-
-// 📊 INDICATORS
-app.get("/api/prices", async (req, res) => {
+// 🔥 SAFE FETCH PER SYMBOL (CRITICAL FIX)
+async function fetchSingle(symbol) {
   try {
-    const list = INDICATORS.map(s => s.symbol).join(",");
-    const data = await fetchYahoo(list);
+    const url = `https://query1.finance.yahoo.com/v7/finance/quote?symbols=${symbol}`;
 
-    const result = INDICATORS.map(s => {
-      const q = data.find(x => x.symbol === s.symbol);
-
-      return q
-        ? {
-            name: s.name,
-            price: q.regularMarketPrice,
-            pctChange: q.regularMarketChangePercent
-          }
-        : { name: s.name, price: null, pctChange: null };
+    const res = await axios.get(url, {
+      headers: { "User-Agent": "Mozilla/5.0" },
+      timeout: 4000
     });
 
-    res.json(result);
+    const q = res.data.quoteResponse.result[0];
+
+    if (!q) return null;
+
+    return {
+      price: q.regularMarketPrice,
+      pctChange: q.regularMarketChangePercent
+    };
 
   } catch {
-    res.json([]);
+    return null;
   }
+}
+
+// 📊 INDICATORS (NO MORE EMPTY)
+app.get("/api/prices", async (req, res) => {
+  const results = [];
+
+  for (const s of INDICATORS) {
+    const data = await fetchSingle(s.symbol);
+
+    if (data) {
+      results.push({
+        name: s.name,
+        price: data.price,
+        pctChange: data.pctChange
+      });
+    } else {
+      // 🔥 fallback
+      results.push({
+        name: s.name,
+        price: 0,
+        pctChange: 0
+      });
+    }
+  }
+
+  res.json(results);
 });
 
-// 🧾 PORTFOLIO (Google Sheet rows 1–9)
+// 🧾 PORTFOLIO
 app.get("/api/sheet", async (req, res) => {
   try {
     const url = "https://docs.google.com/spreadsheets/d/e/2PACX-1vQs38DKrijbxXURWYSmVoP9RN2mNSvphDI6yCR5aBXSFmALsuUm4MNK54f3MphaBAnHETqRtzpY5pt6/pub?gid=1778497186&single=true&output=csv";
@@ -78,7 +92,7 @@ app.get("/api/sheet", async (req, res) => {
   }
 });
 
-// 📊 WATCHLIST (Google Sheet rows 10+)
+// 📊 WATCHLIST (SAFE)
 app.get("/api/watchlist", async (req, res) => {
   try {
     const sheetURL = "https://docs.google.com/spreadsheets/d/e/2PACX-1vQs38DKrijbxXURWYSmVoP9RN2mNSvphDI6yCR5aBXSFmALsuUm4MNK54f3MphaBAnHETqRtzpY5pt6/pub?gid=1778497186&single=true&output=csv";
@@ -91,27 +105,27 @@ app.get("/api/watchlist", async (req, res) => {
       .map(r => r.trim())
       .filter(x => x.length > 0);
 
-    if (symbols.length === 0) return res.json([]);
+    const results = [];
 
-    const data = await fetchYahoo(symbols.join(","));
+    for (const sym of symbols) {
+      const data = await fetchSingle(sym);
 
-    const result = symbols.map(sym => {
-      const q = data.find(x => x.symbol === sym);
+      if (data) {
+        results.push({
+          symbol: sym,
+          price: data.price,
+          pctChange: data.pctChange
+        });
+      } else {
+        results.push({
+          symbol: sym,
+          price: 0,
+          pctChange: 0
+        });
+      }
+    }
 
-      return q
-        ? {
-            symbol: sym,
-            price: q.regularMarketPrice,
-            pctChange: q.regularMarketChangePercent
-          }
-        : {
-            symbol: sym,
-            price: null,
-            pctChange: null
-          };
-    });
-
-    res.json(result);
+    res.json(results);
 
   } catch {
     res.json([]);
@@ -123,11 +137,11 @@ app.get("/api/explain", (req, res) => {
   res.json({
     takeaway: "Markets active",
     action: "Monitor",
-    commentary: "Backend V4 fully connected"
+    commentary: "V5 stable data feed"
   });
 });
 
 // ROOT
-app.get("/", (req, res) => res.send("Backend running V4"));
+app.get("/", (req, res) => res.send("Backend running V5"));
 
 app.listen(process.env.PORT || 3001);
