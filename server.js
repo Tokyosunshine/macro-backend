@@ -7,7 +7,7 @@ app.use(cors());
 
 const OPENAI_API_KEY = process.env.OPENAI_API_KEY;
 
-// 📊 CORE INDICATORS
+// 📊 INDICATORS
 const symbols = [
   { name: "USD/CHF", symbol: "CHF=X" },
   { name: "Oil", symbol: "CL=F" },
@@ -21,7 +21,7 @@ const symbols = [
   { name: "Bitcoin", symbol: "BTC-USD" }
 ];
 
-// 🔥 FETCH INDICATORS (YAHOO-CORRECT % CHANGE)
+// 🔥 SAFE PRICE FETCH
 async function getPrices() {
   const results = [];
 
@@ -30,14 +30,20 @@ async function getPrices() {
       const url = `https://query1.finance.yahoo.com/v8/finance/chart/${s.symbol}?range=1d&interval=5m`;
       const response = await axios.get(url);
 
-      const chart = response.data.chart.result[0];
-      const closes = chart.indicators.quote[0].close;
+      const result = response.data.chart?.result?.[0];
+      if (!result) throw new Error("No chart result");
+
+      const closes = result.indicators?.quote?.[0]?.close || [];
       const valid = closes.filter(x => x !== null);
 
-      const latest = valid[valid.length - 1];
-      const prev = chart.meta.previousClose;
+      if (valid.length === 0) throw new Error("No valid prices");
 
-      const pctChange = prev ? ((latest - prev) / prev) * 100 : 0;
+      const latest = valid[valid.length - 1];
+      const prev = result.meta?.previousClose;
+
+      const pctChange = prev
+        ? ((latest - prev) / prev) * 100
+        : 0;
 
       results.push({
         name: s.name,
@@ -45,15 +51,20 @@ async function getPrices() {
         pctChange
       });
 
-    } catch {
-      results.push({ name: s.name, price: 0, pctChange: 0 });
+    } catch (err) {
+      console.log("Indicator failed:", s.symbol);
+      results.push({
+        name: s.name,
+        price: null,
+        pctChange: null
+      });
     }
   }
 
   return results;
 }
 
-// 🧾 PORTFOLIO (ROWS 1–9 ONLY)
+// 🧾 PORTFOLIO (ROWS 1–9)
 app.get("/api/sheet", async (req, res) => {
   try {
     const url = "https://docs.google.com/spreadsheets/d/e/2PACX-1vQs38DKrijbxXURWYSmVoP9RN2mNSvphDI6yCR5aBXSFmALsuUm4MNK54f3MphaBAnHETqRtzpY5pt6/pub?gid=1778497186&single=true&output=csv";
@@ -75,7 +86,7 @@ app.get("/api/sheet", async (req, res) => {
 
     res.json(parsed);
 
-  } catch {
+  } catch (err) {
     res.json([]);
   }
 });
@@ -91,7 +102,9 @@ app.get("/api/watchlist", async (req, res) => {
     const symbols = rows
       .slice(9)
       .map(r => r.trim())
-      .filter(r => r.length > 0 && !r.includes(","));
+      .filter(r => r.length > 0)
+      .map(r => r.replace(/"/g, "").split(",")[0])
+      .filter(s => s.length > 0);
 
     const results = [];
 
@@ -100,17 +113,25 @@ app.get("/api/watchlist", async (req, res) => {
         const url = `https://query1.finance.yahoo.com/v8/finance/chart/${symbol}?range=1d&interval=5m`;
         const response = await axios.get(url);
 
-        const chart = response.data.chart.result[0];
-        const closes = chart.indicators.quote[0].close;
+        const result = response.data.chart?.result?.[0];
+        if (!result) continue;
+
+        const closes = result.indicators?.quote?.[0]?.close || [];
         const valid = closes.filter(x => x !== null);
 
+        if (valid.length === 0) continue;
+
         const last = valid[valid.length - 1];
-        const prev = chart.meta.previousClose;
+        const prev = result.meta?.previousClose;
 
-        const pct = prev ? ((last - prev) / prev) * 100 : 0;
+        const pct = prev
+          ? ((last - prev) / prev) * 100
+          : 0;
 
-        const post = chart.meta.postMarketPrice;
-        const postPct = post && last ? ((post - last) / last) * 100 : null;
+        const post = result.meta?.postMarketPrice;
+        const postPct = post && last
+          ? ((post - last) / last) * 100
+          : null;
 
         results.push({
           symbol,
@@ -129,25 +150,13 @@ app.get("/api/watchlist", async (req, res) => {
   }
 });
 
-// 🤖 AI COMMENTARY
+// 🤖 AI
 app.get("/api/explain", async (req, res) => {
   const prices = await getPrices();
 
-  const summary = prices.map(p => `${p.name}: ${p.pctChange.toFixed(2)}%`).join(", ");
-
-  const prompt = `
-You are a macro strategist.
-
-Market:
-${summary}
-
-Return JSON:
-{
-  "takeaway": "...",
-  "action": "...",
-  "commentary": "4-6 sentences"
-}
-`;
+  const summary = prices
+    .map(p => `${p.name}: ${p.pctChange?.toFixed(2) || "—"}%`)
+    .join(", ");
 
   let result = { takeaway: "", action: "", commentary: "" };
 
@@ -156,12 +165,11 @@ Return JSON:
       "https://api.openai.com/v1/chat/completions",
       {
         model: "gpt-3.5-turbo",
-        messages: [{ role: "user", content: prompt }]
+        messages: [{ role: "user", content: summary }]
       },
       {
         headers: {
-          Authorization: `Bearer ${OPENAI_API_KEY}`,
-          "Content-Type": "application/json"
+          Authorization: `Bearer ${OPENAI_API_KEY}`
         }
       }
     );
@@ -173,35 +181,6 @@ Return JSON:
 });
 
 // 📊 BACKTEST
-function runBacktest(prices) {
-  let equity = 100;
-  let peak = 100;
-  let maxDrawdown = 0;
-  let wins = 0;
-  let total = 0;
-
-  for (let i = 1; i < prices.length; i++) {
-    const r = (prices[i] - prices[i - 1]) / prices[i - 1];
-    const signal = r > 0 ? 1 : -1;
-    const pnl = signal * r;
-
-    equity *= (1 + pnl);
-
-    if (pnl > 0) wins++;
-    total++;
-
-    if (equity > peak) peak = equity;
-    const dd = (equity - peak) / peak;
-    if (dd < maxDrawdown) maxDrawdown = dd;
-  }
-
-  return {
-    totalReturn: (equity - 100).toFixed(2) + "%",
-    hitRate: ((wins / total) * 100).toFixed(1) + "%",
-    maxDrawdown: (maxDrawdown * 100).toFixed(1) + "%"
-  };
-}
-
 app.get("/api/backtest", async (req, res) => {
   try {
     const url = "https://query1.finance.yahoo.com/v8/finance/chart/SPY?range=6mo&interval=1d";
@@ -210,15 +189,23 @@ app.get("/api/backtest", async (req, res) => {
     const closes = response.data.chart.result[0].indicators.quote[0].close;
     const clean = closes.filter(x => x !== null);
 
-    res.json(runBacktest(clean));
+    let equity = 100;
+
+    for (let i = 1; i < clean.length; i++) {
+      const r = (clean[i] - clean[i - 1]) / clean[i - 1];
+      const pnl = (r > 0 ? 1 : -1) * r;
+      equity *= (1 + pnl);
+    }
+
+    res.json({ totalReturn: (equity - 100).toFixed(2) + "%" });
+
   } catch {
     res.json({});
   }
 });
 
-// 📊 PRICES
 app.get("/api/prices", async (req, res) => {
   res.json(await getPrices());
 });
 
-app.listen(process.env.PORT || 3001, () => console.log("Server running"));
+app.listen(process.env.PORT || 3001);
