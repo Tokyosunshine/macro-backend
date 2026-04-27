@@ -21,23 +21,20 @@ const symbols = [
   { name: "Bitcoin", symbol: "BTC-USD" }
 ];
 
-// 🔥 GET PRICES (FIXED % CHANGE)
+// 🔥 GET PRICES (YAHOO-CORRECT %)
 async function getPrices() {
   const results = [];
 
   for (const s of symbols) {
     try {
       const url = `https://query1.finance.yahoo.com/v8/finance/chart/${s.symbol}?range=1d&interval=5m`;
-
       const response = await axios.get(url);
-      const chart = response.data.chart.result[0];
 
+      const chart = response.data.chart.result[0];
       const closes = chart.indicators.quote[0].close;
       const valid = closes.filter(x => x !== null);
 
       const latest = valid[valid.length - 1];
-
-      // ✅ FIX: use previous close (matches Yahoo Finance)
       const prev = chart.meta.previousClose;
 
       const pctChange = prev
@@ -50,8 +47,7 @@ async function getPrices() {
         pctChange
       });
 
-    } catch (err) {
-      console.error("Price error:", s.name, err.message);
+    } catch {
       results.push({ name: s.name, price: 0, pctChange: 0 });
     }
   }
@@ -59,18 +55,17 @@ async function getPrices() {
   return results;
 }
 
-// 🧾 GOOGLE SHEET (ROBUST)
+// 🧾 GOOGLE SHEET
 app.get("/api/sheet", async (req, res) => {
   try {
     const url = "https://docs.google.com/spreadsheets/d/e/2PACX-1vQs38DKrijbxXURWYSmVoP9RN2mNSvphDI6yCR5aBXSFmALsuUm4MNK54f3MphaBAnHETqRtzpY5pt6/pub?gid=1778497186&single=true&output=csv";
-
     const response = await axios.get(url);
 
     const rows = response.data.split("\n");
 
     const parsed = rows
       .map(r => r.trim())
-      .filter(r => r.includes(",")) // only valid rows
+      .filter(r => r.includes(","))
       .map(r => {
         const parts = r.split(",");
         return {
@@ -81,13 +76,65 @@ app.get("/api/sheet", async (req, res) => {
 
     res.json(parsed);
 
-  } catch (err) {
-    console.error("Sheet error:", err.message);
+  } catch {
     res.json([]);
   }
 });
 
-// 🤖 AI COMMENTARY
+// 🔥 WATCHLIST
+app.get("/api/watchlist", async (req, res) => {
+  try {
+    const url = "https://docs.google.com/spreadsheets/d/e/2PACX-1vQs38DKrijbxXURWYSmVoP9RN2mNSvphDI6yCR5aBXSFmALsuUm4MNK54f3MphaBAnHETqRtzpY5pt6/pub?gid=1778497186&single=true&output=csv";
+    const response = await axios.get(url);
+
+    const rows = response.data.split("\n");
+
+    const watchlist = rows
+      .slice(9)
+      .map(r => r.trim())
+      .filter(r => r.length > 0 && !r.includes(","));
+
+    const results = [];
+
+    for (const symbol of watchlist) {
+      try {
+        const url = `https://query1.finance.yahoo.com/v8/finance/chart/${symbol}?range=1d&interval=5m`;
+        const response = await axios.get(url);
+
+        const chart = response.data.chart.result[0];
+        const closes = chart.indicators.quote[0].close;
+        const valid = closes.filter(x => x !== null);
+
+        const last = valid[valid.length - 1];
+        const prev = chart.meta.previousClose;
+
+        const pct = prev
+          ? ((last - prev) / prev) * 100
+          : 0;
+
+        const post = chart.meta.postMarketPrice;
+        const postPct = post
+          ? ((post - last) / last) * 100
+          : null;
+
+        results.push({
+          symbol,
+          price: last,
+          pctChange: pct,
+          afterHours: postPct
+        });
+
+      } catch {}
+    }
+
+    res.json(results);
+
+  } catch {
+    res.json([]);
+  }
+});
+
+// 🤖 AI
 app.get("/api/explain", async (req, res) => {
   const prices = await getPrices();
 
@@ -127,14 +174,12 @@ Return JSON:
     );
 
     result = JSON.parse(response.data.choices[0].message.content);
-  } catch (err) {
-    console.error("AI error:", err.message);
-  }
+  } catch {}
 
   res.json(result);
 });
 
-// 📊 BACKTEST ENGINE
+// 📊 BACKTEST
 function runBacktest(prices) {
   let equity = 100;
   let peak = 100;
@@ -165,35 +210,23 @@ function runBacktest(prices) {
   };
 }
 
-// 📊 BACKTEST API
 app.get("/api/backtest", async (req, res) => {
   try {
     const url = "https://query1.finance.yahoo.com/v8/finance/chart/SPY?range=6mo&interval=1d";
-
     const response = await axios.get(url);
-    const closes = response.data.chart.result[0].indicators.quote[0].close;
 
+    const closes = response.data.chart.result[0].indicators.quote[0].close;
     const clean = closes.filter(x => x !== null);
 
-    const result = runBacktest(clean);
+    res.json(runBacktest(clean));
 
-    res.json(result);
-  } catch (err) {
-    console.error("Backtest error:", err.message);
+  } catch {
     res.json({ totalReturn: "-", hitRate: "-", maxDrawdown: "-" });
   }
 });
 
-// 📊 PRICES API
 app.get("/api/prices", async (req, res) => {
   res.json(await getPrices());
 });
 
-// ROOT
-app.get("/", (req, res) => {
-  res.send("Backend running");
-});
-
-// START
-const PORT = process.env.PORT || 3001;
-app.listen(PORT, () => console.log("Server running on port " + PORT));
+app.listen(process.env.PORT || 3001, () => console.log("Server running"));
