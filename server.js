@@ -19,15 +19,14 @@ const symbols = [
   { name: "Bitcoin", symbol: "BTC-USD" }
 ];
 
-// 🔥 STRONG FETCH FUNCTION
+// 🔥 FETCH FROM YAHOO (ROBUST)
 async function fetchYahoo(symbolList) {
   const url = `https://query2.finance.yahoo.com/v7/finance/quote?symbols=${symbolList}`;
 
   const res = await axios.get(url, {
     headers: {
       "User-Agent": "Mozilla/5.0",
-      "Accept": "application/json",
-      "Accept-Language": "en-US,en;q=0.9"
+      "Accept": "application/json"
     },
     timeout: 7000
   });
@@ -41,23 +40,29 @@ async function getPrices() {
     const list = symbols.map(s => s.symbol).join(",");
     const data = await fetchYahoo(list);
 
-    if (!data || data.length === 0) throw new Error("Empty Yahoo");
-
     return symbols.map(s => {
       const q = data.find(x => x.symbol === s.symbol);
-      return q
-        ? {
-            name: s.name,
-            price: q.regularMarketPrice,
-            pctChange: q.regularMarketChangePercent
-          }
-        : { name: s.name, price: 0, pctChange: 0 };
+
+      if (!q) return { name: s.name, price: null, pctChange: null };
+
+      const price =
+        q.regularMarketPrice ??
+        q.postMarketPrice ??
+        q.preMarketPrice ??
+        null;
+
+      const pct =
+        q.regularMarketChangePercent ??
+        q.postMarketChangePercent ??
+        q.preMarketChangePercent ??
+        null;
+
+      return { name: s.name, price, pctChange: pct };
     });
 
   } catch (err) {
-    console.log("Yahoo blocked → fallback used");
+    console.log("Yahoo failed → fallback");
 
-    // 🔥 fallback so UI never breaks
     return symbols.map((s, i) => ({
       name: s.name,
       price: 100 + i,
@@ -87,7 +92,6 @@ app.get("/api/sheet", async (req, res) => {
       });
 
     res.json(parsed);
-
   } catch {
     res.json([]);
   }
@@ -105,28 +109,44 @@ app.get("/api/watchlist", async (req, res) => {
       .slice(9)
       .map(r => r.trim())
       .filter(r => r.length > 0)
-      .map(r => r.replace(/"/g, "").split(",")[0]);
+      .map(r => r.replace(/"/g, "").split(",")[0].trim())
+      .filter(s => s.length > 0);
 
     if (symbols.length === 0) return res.json([]);
 
     const data = await fetchYahoo(symbols.join(","));
 
     const results = symbols.map(sym => {
-      const q = data.find(x => x.symbol === sym);
-      return q
-        ? {
-            symbol: sym,
-            price: q.regularMarketPrice,
-            pctChange: q.regularMarketChangePercent,
-            afterHours: q.postMarketChangePercent ?? null
-          }
-        : null;
+      const q = data.find(x =>
+        x.symbol.toUpperCase() === sym.toUpperCase()
+      );
+
+      if (!q) return null;
+
+      const price =
+        q.regularMarketPrice ??
+        q.postMarketPrice ??
+        q.preMarketPrice ??
+        null;
+
+      const pct =
+        q.regularMarketChangePercent ??
+        q.postMarketChangePercent ??
+        q.preMarketChangePercent ??
+        null;
+
+      return {
+        symbol: sym,
+        price,
+        pctChange: pct,
+        afterHours: q.postMarketChangePercent ?? null
+      };
     }).filter(x => x !== null);
 
     res.json(results);
 
   } catch (err) {
-    console.log("Watchlist Yahoo blocked");
+    console.log("WATCHLIST ERROR:", err.message);
     res.json([]);
   }
 });
